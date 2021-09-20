@@ -7,7 +7,7 @@ jobs:
     strategy:
       fail-fast: false # If one platform fails, allow the rest to keep testing.
       matrix:
-        os: [ubuntu-latest, windows-latest] #, macos-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{matrix.os}}
 
     steps:
@@ -38,11 +38,7 @@ jobs:
 
     # Build and test
     - name: Regular build
-      if: matrix.os != 'macos-latest'
       run: cargo build --verbose
-    - name: Feature-free build
-      if: matrix.os == 'macos-latest'
-      run: cargo build --verbose --no-default-features
     - name: Run tests
       if: matrix.os == 'ubuntu-latest'
       run: cargo test --verbose
@@ -55,4 +51,3 @@ jobs:
     - name: Clippy
       if: matrix.os == 'ubuntu-latest'
       run: cargo clippy
-
