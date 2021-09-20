@@ -161,10 +161,18 @@ impl FromStr for ImplicantSet {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut result = ImplicantSet::default();
-        for elt in s.split(&PATTERN_SEPARATORS[..]) {
+        for elt in s.trim().split(&PATTERN_SEPARATORS[..]) {
             result.push_new_pattern(elt.parse()?);
         }
         Ok(result)
+    }
+}
+
+impl<T: Into<Pattern>> From<T> for ImplicantSet {
+    fn from(pattern: T) -> Self {
+        let mut implicants = ImplicantSet::default();
+        implicants.push_new_pattern(pattern.into());
+        implicants
     }
 }
 

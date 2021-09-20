@@ -216,6 +216,14 @@ impl From<&Pattern> for Expr {
     }
 }
 
+impl<T: VariableID> From<T> for Pattern {
+    fn from(var: T) -> Self {
+        let mut pattern = Pattern::default();
+        pattern.set(var, true);
+        pattern
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::pattern::*;

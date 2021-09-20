@@ -112,7 +112,7 @@ impl Expr {
             Expr::Bool(false) => write!(f, "False"),
             Expr::Atom(v) => match namer {
                 Some(n) => n.format_variable(f, *v),
-                None => v.fmt(f),
+                None => fmt::Display::fmt(v, f),
             },
             Expr::Not(e) => {
                 write!(f, "!")?;
