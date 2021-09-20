@@ -1,0 +1,58 @@
+name: Rust
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false # If one platform fails, allow the rest to keep testing.
+      matrix:
+        os: [ubuntu-latest, windows-latest] #, macos-latest]
+    runs-on: ${{matrix.os}}
+
+    steps:
+    - uses: actions/checkout@v2
+
+    # Create or retrieve the cache for cargo
+    - name: Cache cargo registry
+      uses: actions/cache@v1
+      with:
+        path: ~/.cargo/registry
+        key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache cargo index
+      uses: actions/cache@v1
+      with:
+        path: ~/.cargo/git
+        key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+    - name: Cache cargo build
+      uses: actions/cache@v1
+      with:
+        path: target
+        key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: 3.9
+        architecture: "x64"
+
+    # Build and test
+    - name: Regular build
+      if: matrix.os != 'macos-latest'
+      run: cargo build --verbose
+    - name: Feature-free build
+      if: matrix.os == 'macos-latest'
+      run: cargo build --verbose --no-default-features
+    - name: Run tests
+      if: matrix.os == 'ubuntu-latest'
+      run: cargo test --verbose
+    - name: Check examples
+      if: matrix.os == 'ubuntu-latest'
+      run: cargo test --examples --verbose
+    - name: Check formatting
+      if: matrix.os == 'ubuntu-latest'
+      run: cargo fmt -- --check
+    - name: Clippy
+      if: matrix.os == 'ubuntu-latest'
+      run: cargo clippy
+
