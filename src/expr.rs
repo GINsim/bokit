@@ -5,7 +5,6 @@ use core::ops::BitOr;
 use core::ops::Not;
 use std::fmt;
 
-use crate::parse::parse_expression;
 use crate::*;
 use once_cell::sync::Lazy;
 use std::fmt::Debug;
@@ -172,7 +171,7 @@ impl FromStr for Expr {
     type Err = BokitError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        parse_expression(&mut Variable::from_str, s)
+        parse::parse_expression(&mut Variable::from_str, s)
     }
 }
 

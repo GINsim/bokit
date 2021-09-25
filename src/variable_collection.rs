@@ -366,6 +366,10 @@ impl VariableCollection {
     /// Apply variable names from this collection to a rule.
     ///
     /// This operation is only useful to display rules (especially expressions) or variables.
+    ///
+    /// It accepts rules with variables which are not part of the collection.
+    /// In this case, valid variables will be associated to their name in the collection,
+    /// while missing variables will receive their default UID-based name.
     pub fn named<'a>(&'a self, rule: &'a impl Rule) -> impl fmt::Display + 'a {
         NamedRule { namer: self, rule }
     }
