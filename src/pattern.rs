@@ -2,6 +2,7 @@ use crate::*;
 
 use crate::variable::VariableID;
 use std::fmt;
+use std::fmt::Formatter;
 use std::iter::FromIterator;
 use std::str::FromStr;
 
@@ -158,6 +159,11 @@ impl Pattern {
     pub fn contains(&self, p: &Pattern) -> bool {
         p.positive.contains_all(&self.positive) && p.negative.contains_all(&self.negative)
     }
+
+    /// Test if all variables used in this pattern are contained in a given set
+    pub fn variables_contained_in(&self, vars: &VarSet) -> bool {
+        vars.contains_all(&self.positive) && vars.contains_all(&self.negative)
+    }
 }
 
 impl FromStr for Pattern {
@@ -182,6 +188,21 @@ impl FromStr for Pattern {
             };
         }
         Ok(p)
+    }
+}
+
+impl Rule for Pattern {
+    fn fmt_rule(&self, f: &mut Formatter, namer: &VariableCollection) -> fmt::Result {
+        todo!()
+    }
+
+    fn eval(&self, state: &State) -> bool {
+        self.contains_state(state)
+    }
+
+    fn collect_regulators(&self, regulators: &mut VarSet) {
+        regulators.union_with(&self.positive);
+        regulators.union_with(&self.negative);
     }
 }
 

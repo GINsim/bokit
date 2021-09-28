@@ -171,6 +171,7 @@ mod pattern;
 mod primes;
 mod rules;
 mod states;
+pub mod tools;
 mod variable;
 mod variable_collection;
 
