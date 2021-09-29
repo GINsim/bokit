@@ -100,12 +100,7 @@ impl Expr {
     /// This recursive function carries two additional arguments:
     /// * the priority of the parent to decide when to add parenthesis,
     /// * a closure to format atoms, enabling to switch from generic names to search in a custom data structure.
-    fn _fmt_expr(
-        &self,
-        f: &mut fmt::Formatter,
-        p: u8,
-        namer: Option<&VarSpace>,
-    ) -> fmt::Result {
+    fn _fmt_expr(&self, f: &mut fmt::Formatter, p: u8, namer: Option<&VarSpace>) -> fmt::Result {
         match self {
             Expr::Bool(true) => write!(f, "True"),
             Expr::Bool(false) => write!(f, "False"),
