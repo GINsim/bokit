@@ -192,8 +192,8 @@ impl FromStr for Pattern {
 }
 
 impl Rule for Pattern {
-    fn fmt_rule(&self, f: &mut Formatter, namer: &VariableCollection) -> fmt::Result {
-        todo!()
+    fn fmt_rule(&self, f: &mut Formatter, _collection: &VariableCollection) -> fmt::Result {
+        write!(f, "{}", self)
     }
 
     fn eval(&self, state: &State) -> bool {

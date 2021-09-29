@@ -1,6 +1,7 @@
 use crate::*;
 
-use crate::implicants::PATTERN_SEPARATORS;
+use crate::implicants::{covers_slice, PATTERN_SEPARATORS};
+use crate::tools::quick_partition;
 use std::iter::FromIterator;
 use std::slice::Iter;
 use std::str::FromStr;
@@ -48,22 +49,23 @@ impl Primes {
     /// 3) Update all remaining patterns
     /// 4) remove newly subsumed patterns
     pub fn restrict(&mut self, uid: usize, value: bool) {
-        // Start by removing all conflicting patterns
-        self.patterns.retain(|p| !p.has_restriction(uid, !value));
+        // Add the restriction, eliminate conflicts and separate unchanged patterns
+        let pivot = self.patterns.restrict(uid, value);
 
-        // Extract the unchanged patterns and keep only the extended ones
-        let mut unchanged = self
-            .patterns
-            .split_subset(|p| p.has_restriction(uid, value));
+        // If no or all implicants have changed, we are done
+        if pivot == 0 || pivot == self.len() {
+            return;
+        }
 
-        // Apply the restriction to the remaining patterns
-        self.patterns.restrict(uid, value);
+        // Exclude the restricted implicants (after pivot) that could be subsumed by unchanged ones (before pivot)
+        let (slice_unchanged, slice_restricted) = self.patterns.as_mut_slice().split_at_mut(pivot);
+        let end = quick_partition(slice_restricted, |p| !covers_slice(slice_unchanged, p));
+        self.patterns.truncate(pivot + end);
 
-        // Eliminate newly subsumed patterns
-        self.patterns.exclude(&unchanged);
-
-        // merge back the two sets
-        self.patterns.append(&mut unchanged);
+        unsafe {
+            // Here it is safe to clear the subsumed flag
+            self.patterns.clear_subsumed_flag();
+        }
     }
 
     /// Merge two lists of prime implicants.
@@ -82,12 +84,17 @@ impl Primes {
 
         // Recursive call to a private function to merge the emerging patterns
         self.merge_emerging(emerging);
+
+        unsafe {
+            // Here it is safe to clear the subsumed flag
+            self.patterns.clear_subsumed_flag();
+        }
     }
 
     pub fn add_pattern(&mut self, p: Pattern) {
         // TODO: add a faster implementation for common easy cases?
         let mut other = Primes::default();
-        other.patterns.push_new_pattern(p);
+        other.patterns.push_clear_subsumed(p);
         self.merge(&mut other);
     }
 
@@ -209,6 +216,26 @@ mod tests {
     use crate::*;
 
     #[test]
+    fn test_basics() -> Result<(), BokitError> {
+        let pi = Primes::from(false);
+        assert_eq!(pi.len(), 0);
+
+        let mut pi = Primes::from(true);
+        assert_eq!(pi.len(), 1);
+        let p: &Pattern = &pi.patterns[0];
+        assert_eq!(p.positive.len(), 0);
+        assert_eq!(p.negative.len(), 0);
+
+        pi.restrict(2, true);
+        assert_eq!(pi.len(), 1);
+        let p: &Pattern = &pi.patterns[0];
+        assert_eq!(p.positive.len(), 1);
+        assert_eq!(p.negative.len(), 0);
+
+        Ok(())
+    }
+
+    #[test]
     fn count_primes() -> Result<(), BokitError> {
         let mut variables = VariableCollection::default();
         let first = variables.add("first")?;
@@ -220,11 +247,11 @@ mod tests {
 
         let primes = Primes::from(&e);
 
-        assert_eq!(2, primes.patterns.len());
+        assert_eq!(2, primes.len());
 
         let e: Expr = (test & other) | (myvar & other & !test) | (test & !myvar & other);
         let primes = Primes::from(&e);
-        assert_eq!(2, primes.patterns.len());
+        assert_eq!(2, primes.len());
 
         let v1 = Variable::from(1);
         let v2 = Variable::from(2);

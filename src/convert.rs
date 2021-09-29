@@ -58,7 +58,7 @@ impl From<bool> for ImplicantSet {
     fn from(value: bool) -> Self {
         let mut result = Self::default();
         if value {
-            result.push_new_pattern(Pattern::default());
+            result.push_clear_subsumed(Pattern::default());
         }
         result
     }

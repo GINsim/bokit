@@ -1,3 +1,5 @@
+//! Some helper functions
+
 /// In-place fast slice partitioning (the order is not preserved).
 ///
 /// All items ```a``` such that ```f(a) == true``` are grouped at the start of the slice.
@@ -71,13 +73,10 @@ mod tests {
 
     #[test]
     fn test_quick_partition() {
-        let mut v = vec![1, 4, 7, 12, 6, 15, 2];
-        let mut v1 = vec![1, 4, 7, 12, 6, 15, 2];
-        let mut v2 = vec![4, 21, 0, 5, 7, 12];
-
         dispatch_check_pivot(vec![]);
         dispatch_check_pivot(vec![2]);
         dispatch_check_pivot(vec![123, 32]);
+        dispatch_check_pivot(vec![4, 21, 0, 5, 7, 12]);
         dispatch_check_pivot(vec![1, 4, 7, 12, 6, 15, 2]);
     }
 

@@ -1,8 +1,10 @@
 //! Manipulate sets of (prime) implicants.
 
 use crate::*;
+use bit_set::BitSet;
 use std::fmt::Display;
 use std::iter::FromIterator;
+use std::ops::{Index, IndexMut, Range};
 use std::slice::Iter;
 use std::str::FromStr;
 use std::vec::IntoIter;
@@ -12,15 +14,65 @@ pub(crate) static PATTERN_SEPARATORS: [char; 4] = [',', ';', '|', '\n'];
 /// Boolean function represented as a set of implicants.
 ///
 /// An implicant of a Boolean function is a pattern such that the function is true for all covered states.
-/// The implicants in a set of implicants cover exactly all true states of the function.
+/// The implicants in a set of implicants covering exactly all true states of the function.
+///
+/// The list keeps track of the potential for some implicants to be contained in others.
 #[derive(Clone, Default, Debug)]
 pub struct ImplicantSet {
     patterns: Vec<Pattern>,
+    /// Track whether this list could contains subsumed patterns
+    subsumed_flag: bool,
 }
 
 impl ImplicantSet {
+    /// Create a new, empty list of implicants.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Import a list of patterns as a list of implicants.
+    /// If it contains at least two patterns, it will be tainted for potential subsumed patterns.
     fn with(patterns: Vec<Pattern>) -> Self {
-        Self { patterns }
+        let mut result = Self {
+            patterns,
+            subsumed_flag: true,
+        };
+        result.reset_subsumed_flag();
+
+        result
+    }
+
+    /// Return the subsumed flag.
+    ///
+    /// When this flag is false, the list should not contain any pair of pattern subsuming each other.
+    pub fn subsumed_flag(&self) -> bool {
+        self.subsumed_flag
+    }
+
+    /// Force clearing the subsumed flag, use with extra care.
+    ///
+    /// The subsumed flag is used to avoid searching for subsumed implicants to remove
+    /// when we already know that the list does not contain any of them.
+    /// The flag is enabled for lists containing at least two implicants (see [Self::reset_subsumed_flag]).
+    /// If the subsumed flag is cleared in a list containing subsumed patterns, a call
+    /// to remove subsumed pattern will return early and leave the subsumed patterns in place.
+    ///
+    /// # Safety
+    ///
+    /// This function is memory safe, but can compromise the consistency of the list.
+    /// In most cases, the subsumed flag is enabled when new patterns are added and cleared when subsumed
+    /// patterns are removed (see [Self::clear_subsumed_patterns] and [Self::push_clear_subsumed]).
+    ///
+    /// In some cases (for example in a [list of primes implicants](Primes)), the subsumed flag is
+    /// set to ensure consistency, but additional context continues to ensure their absence.
+    /// This function is then useful to avoid unnecessary computations in the future.
+    pub unsafe fn clear_subsumed_flag(&mut self) {
+        self.subsumed_flag = false;
+    }
+
+    /// Set the subsumed flag if the list contains several patterns
+    pub fn reset_subsumed_flag(&mut self) {
+        self.subsumed_flag = self.len() > 1;
     }
 
     pub fn iter(&self) -> Iter<'_, Pattern> {
@@ -29,55 +81,102 @@ impl ImplicantSet {
 
     /// Remove all patterns.
     ///
-    /// This will give an empty set, covering the FALSE function
+    /// The resulting empty list corresponds to the FALSE function
+    /// The flag for potentially subsumed patterns is also cleared
     pub fn clear(&mut self) {
         self.patterns.clear();
+        self.subsumed_flag = false;
     }
 
-    /// Keep only the implicants matching the provided condition.
-    pub fn retain<F>(&mut self, f: F)
-    where
-        F: FnMut(&Pattern) -> bool,
-    {
-        self.patterns.retain(f);
+    /// Keep only implicants matching the provided condition.
+    ///
+    /// It does not affect the subsumed flag but may affect the order of the remaining implicants.
+    /// It uses [Self::quick_partition] to group all removed items then truncates the list.
+    ///
+    /// The subsumed flag can be cleared if the list if reduced to less than 2 implicants.
+    pub fn quick_retain<F: Fn(&Pattern) -> bool>(&mut self, f: F) {
+        let pivot = self.quick_partition(f);
+        self.patterns.truncate(pivot);
+        self.subsumed_flag &= self.len() > 1;
     }
 
-    /// Extract a subset of the implicants into a separate set, retain only the others implicants
-    pub(crate) fn split_subset<F>(&mut self, mut f: F) -> Self
-    where
-        F: FnMut(&Pattern) -> bool,
-    {
-        // TODO: use drain_filter (when it is stable) to avoid cloning
-        let to_extract: Vec<Pattern> = self.patterns.iter().filter(|p| f(p)).cloned().collect();
-        self.patterns.retain(|p| !f(p));
-        Self::with(to_extract)
+    /// Split the list according to a condition.
+    ///
+    /// It uses a "quick-sort-like" approach with low and high indices which are used to swap as few
+    ///elements as possible.
+    /// Returns the pivot index such that all items satisfying f are in ```self[0..pivot]```.
+    pub fn quick_partition<F: Fn(&Pattern) -> bool>(&mut self, f: F) -> usize {
+        tools::quick_partition(&mut self.patterns, f)
+    }
+
+    /// Get full access to the inner data
+    ///
+    /// The [subsumed flag is reset](Self::reset_subsumed_flag) as it enables any modification.
+    pub fn as_mut_slice(&mut self) -> &mut [Pattern] {
+        self.reset_subsumed_flag();
+        self.patterns.as_mut_slice()
     }
 
     /// Add a restriction to all implicants in the set.
     ///
-    /// Note that this may introduce conflicts for some implicants
-    pub fn restrict(&mut self, uid: usize, value: bool) {
-        for p in &mut self.patterns {
-            p.set_ignoring_conflicts(uid, value);
-        }
+    /// Patterns which had an opposite restriction are considered as conflicts and removed.
+    /// Patterns which had the same restriction remain unchanged and grouped at the start of the list.
+    /// As a result the order of the remaining implicants can be changed.
+    ///
+    /// The subsumed flag is enforced if the pivot separates two non-empty sublists.
+    pub fn restrict(&mut self, uid: usize, value: bool) -> usize {
+        // Start by removing all conflicting patterns
+        let not_value = !value;
+        self.quick_retain(|p| !p.has_restriction(uid, not_value));
+
+        // Group the unchanged patterns at the start of the list
+        let pivot = self.quick_partition(|p| p.has_restriction(uid, value));
+
+        // Apply the restriction to the remaining patterns
+        self.patterns[pivot..]
+            .iter_mut()
+            .for_each(|p| p.set_ignoring_conflicts(uid, value));
+        self.subsumed_flag |= pivot > 0 && pivot < self.len();
+        pivot
     }
 
-    /// Add all patterns from another set
+    /// Add all patterns from another set.
+    ///
+    /// The subsumed flag is set either if the two lists are not empty
+    /// or if it was previously set in at least one of them.
     pub fn append(&mut self, other: &mut Self) {
-        self.patterns.append(&mut other.patterns)
+        self.patterns.append(&mut other.patterns);
+        self.subsumed_flag |= other.subsumed_flag || (!self.is_empty() && !other.is_empty());
     }
 
     /// Test if the given pattern is covered by at least one pattern in this set.
     ///
-    /// Note that if it returns false, the states of the target pattern could still be contained in
-    /// this list of implicants. This corner case is eliminated if the implicants are prime.
-    pub fn contains(&self, p: &Pattern) -> bool {
-        self.iter().any(|t| t.contains(p))
+    /// Note that if it returns false, the states of the target pattern could still be
+    /// contained in this list of implicants, even for prime implicants.
+    pub fn covers(&self, p: &Pattern) -> bool {
+        self.range_covers(0..self.len(), p)
     }
 
-    /// Remove all patterns covered by at least one pattern of the given set
+    pub fn range_covers(&self, range: Range<usize>, p: &Pattern) -> bool {
+        self.patterns[range].iter().any(|t| t.contains(p))
+    }
+
+    /// Remove all patterns covered by at least one pattern of the given set.
+    ///
+    /// Does not affect the subsumed flag.
     pub fn exclude(&mut self, other: &Self) {
-        self.patterns.retain(|p| !other.contains(p));
+        match other.len() {
+            0 => (),
+            1 => {
+                let o = &other[0];
+                self.quick_retain(|p| !o.contains(p));
+            }
+            _ => {
+                // TODO: use summaries to speed it up
+                // let vars = other.get_regulators();
+                self.quick_retain(|p| !other.covers(p));
+            }
+        }
     }
 
     /// Find the patterns emerging from two sets of patterns.
@@ -90,10 +189,10 @@ impl ImplicantSet {
             for t in &other.patterns {
                 if let Some(e) = p.emerging_pattern(t) {
                     // TODO: if e contains p (resp t) testing self (resp other) is not needed
-                    if self.contains(&e) || other.contains(&e) {
+                    if self.covers(&e) || other.covers(&e) {
                         continue;
                     }
-                    result.push_new_pattern(e);
+                    result.push_clear_subsumed(e);
                 }
             }
         }
@@ -101,16 +200,78 @@ impl ImplicantSet {
         result
     }
 
+    pub fn collect_regulators_range(&self, start: usize, end: usize, vars: &mut VarSet) {
+        self.patterns[start..end]
+            .iter()
+            .for_each(|p| p.collect_regulators(vars));
+    }
+
+    /// Add a pattern to the list
+    ///
+    /// The pattern is added without any consistency check: it could already be in the list,
+    /// or contained in an existing pattern, or contain some existing patterns.
+    /// See [Self::push_clear_subsumed] for a more restrictive addition
+    pub fn push(&mut self, p: Pattern) {
+        self.subsumed_flag |= !self.is_empty();
+        self.patterns.push(p)
+    }
+
     /// Add a new pattern avoiding duplicate.
     ///
     /// If the new pattern is contained in the set, nothing changes.
-    /// Otherwise, the newly subsumed patterns are removed from the set.
-    pub fn push_new_pattern(&mut self, p: Pattern) {
-        if self.contains(&p) {
+    /// Otherwise, any newly subsumed patterns are removed from the set before adding the new pattern.
+    pub fn push_clear_subsumed(&mut self, p: Pattern) {
+        if self.covers(&p) {
             return;
         }
-        self.retain(|t| !p.contains(t));
+        self.quick_retain(|t| !p.contains(t));
         self.patterns.push(p);
+    }
+
+    /// Remove all patterns contained in at least one other pattern of the list.
+    pub fn clear_subsumed_patterns(&mut self) {
+        // Do nothing if this list is already clean
+        if !self.subsumed_flag {
+            return;
+        }
+
+        // TODO: use drain on a range or at least swap_remove as we go
+        let mut filtered = BitSet::new();
+        for idx in 0..self.len() {
+            if filtered.contains(idx) {
+                continue;
+            }
+            let p = &self.patterns[idx];
+            for idx2 in idx + 1..self.len() {
+                if filtered.contains(idx2) {
+                    continue;
+                }
+                let p2 = &self.patterns[idx2];
+                if p2.contains(p) {
+                    filtered.insert(idx);
+                    break;
+                }
+                if p.contains(p2) {
+                    filtered.insert(idx2);
+                }
+            }
+        }
+        self.filtered_patterns(&filtered);
+        self.subsumed_flag = false;
+    }
+
+    /// Remove a selection of the patterns.
+    pub fn filtered_patterns(&mut self, selection: &BitSet) {
+        // TODO: can we remove this function?
+
+        if selection.is_empty() {
+            return;
+        }
+        let mut index = 0;
+        self.patterns.retain(|_| {
+            index += 1;
+            !selection.contains(index - 1)
+        })
     }
 
     /// Check if this function is true in at least one state of the given pattern
@@ -126,15 +287,46 @@ impl ImplicantSet {
     pub fn is_empty(&self) -> bool {
         self.patterns.is_empty()
     }
+
+    pub fn truncate(&mut self, end: usize) {
+        self.patterns.truncate(end)
+    }
+
+    /// Swap two elements in the list of patterns.
+    ///
+    /// Can be used to partition the list in place.
+    pub fn swap(&mut self, a: usize, b: usize) {
+        self.patterns.swap(a, b)
+    }
+
+    /// Remove a pattern and replace it with the last one
+    pub fn swap_remove(&mut self, index: usize) -> Pattern {
+        self.patterns.swap_remove(index)
+    }
+}
+
+pub fn covers_slice(slice: &[Pattern], p: &Pattern) -> bool {
+    slice.iter().any(|t| t.contains(p))
+}
+
+impl Index<usize> for ImplicantSet {
+    type Output = Pattern;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        self.patterns.index(index)
+    }
+}
+
+impl IndexMut<usize> for ImplicantSet {
+    fn index_mut(&mut self, index: usize) -> &mut Self::Output {
+        self.subsumed_flag = true;
+        self.patterns.index_mut(index)
+    }
 }
 
 impl FromIterator<Pattern> for ImplicantSet {
     fn from_iter<I: IntoIterator<Item = Pattern>>(iter: I) -> Self {
-        let mut implicants = ImplicantSet::default();
-        for p in iter {
-            implicants.push_new_pattern(p);
-        }
-        implicants
+        ImplicantSet::with(Vec::from_iter(iter))
     }
 }
 
@@ -162,7 +354,7 @@ impl FromStr for ImplicantSet {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut result = ImplicantSet::default();
         for elt in s.trim().split(&PATTERN_SEPARATORS[..]) {
-            result.push_new_pattern(elt.parse()?);
+            result.push(elt.parse()?);
         }
         Ok(result)
     }
@@ -171,7 +363,7 @@ impl FromStr for ImplicantSet {
 impl<T: Into<Pattern>> From<T> for ImplicantSet {
     fn from(pattern: T) -> Self {
         let mut implicants = ImplicantSet::default();
-        implicants.push_new_pattern(pattern.into());
+        implicants.push_clear_subsumed(pattern.into());
         implicants
     }
 }
@@ -186,10 +378,9 @@ impl Rule for ImplicantSet {
     }
 
     fn collect_regulators(&self, regulators: &mut VarSet) {
-        for p in &self.patterns {
-            regulators.union_with(&p.positive);
-            regulators.union_with(&p.negative);
-        }
+        self.patterns
+            .iter()
+            .for_each(|p| p.collect_regulators(regulators));
     }
 }
 
@@ -215,7 +406,10 @@ mod tests {
         let is1: ImplicantSet = "--01-1---0-1".parse().unwrap();
         assert_eq!(is1.patterns.len(), 1);
 
-        let is2 = "--01-1\n1-0101\n--0-1".parse::<ImplicantSet>().unwrap();
+        let mut is2 = "--01-1\n1-0101\n--0-1".parse::<ImplicantSet>().unwrap();
+        assert_eq!(is2.patterns.len(), 3);
+
+        is2.clear_subsumed_patterns();
         assert_eq!(is2.patterns.len(), 2);
 
         let implicants: ImplicantSet = "0-10;0-11;1-11".parse().unwrap();
