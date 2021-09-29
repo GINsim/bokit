@@ -1,4 +1,4 @@
-use crate::{Expr, ImplicantSet, Primes, State, VarSet, VariableCollection};
+use crate::{Expr, Implicants, Primes, State, VarSet, VarSpace};
 use std::fmt;
 use std::fmt::Formatter;
 
@@ -7,7 +7,7 @@ use std::fmt::Formatter;
 /// This trait defines the API to evaluate and display Boolean rules
 pub trait Rule {
     /// Display the rule using the selected helper
-    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VariableCollection) -> fmt::Result;
+    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VarSpace) -> fmt::Result;
 
     /// Evaluate the rule on the given state
     fn eval(&self, state: &State) -> bool;
@@ -31,7 +31,7 @@ pub enum SomeRule {
     /// Defined as a list of prime implicants
     Primes(Primes),
     /// Defined as a list of implicants, which may not be prime
-    Implicants(ImplicantSet),
+    Implicants(Implicants),
 }
 
 impl SomeRule {
@@ -45,7 +45,7 @@ impl SomeRule {
 }
 
 impl Rule for SomeRule {
-    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VariableCollection) -> fmt::Result {
+    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VarSpace) -> fmt::Result {
         self.inner_rule().fmt_rule(f, namer)
     }
 

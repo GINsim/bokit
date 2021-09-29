@@ -192,7 +192,7 @@ impl FromStr for Pattern {
 }
 
 impl Rule for Pattern {
-    fn fmt_rule(&self, f: &mut Formatter, _collection: &VariableCollection) -> fmt::Result {
+    fn fmt_rule(&self, f: &mut Formatter, _collection: &VarSpace) -> fmt::Result {
         write!(f, "{}", self)
     }
 

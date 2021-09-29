@@ -18,13 +18,13 @@ pub(crate) static PATTERN_SEPARATORS: [char; 4] = [',', ';', '|', '\n'];
 ///
 /// The list keeps track of the potential for some implicants to be contained in others.
 #[derive(Clone, Default, Debug)]
-pub struct ImplicantSet {
+pub struct Implicants {
     patterns: Vec<Pattern>,
     /// Track whether this list could contains subsumed patterns
     subsumed_flag: bool,
 }
 
-impl ImplicantSet {
+impl Implicants {
     /// Create a new, empty list of implicants.
     pub fn new() -> Self {
         Self::default()
@@ -183,7 +183,7 @@ impl ImplicantSet {
     ///
     /// These emerging pattern cover states of the two sets and are not contained in any of them
     pub fn emerging(&self, other: &Self) -> Self {
-        let mut result = ImplicantSet::default();
+        let mut result = Implicants::default();
 
         for p in &self.patterns {
             for t in &other.patterns {
@@ -309,7 +309,7 @@ pub fn covers_slice(slice: &[Pattern], p: &Pattern) -> bool {
     slice.iter().any(|t| t.contains(p))
 }
 
-impl Index<usize> for ImplicantSet {
+impl Index<usize> for Implicants {
     type Output = Pattern;
 
     fn index(&self, index: usize) -> &Self::Output {
@@ -317,20 +317,20 @@ impl Index<usize> for ImplicantSet {
     }
 }
 
-impl IndexMut<usize> for ImplicantSet {
+impl IndexMut<usize> for Implicants {
     fn index_mut(&mut self, index: usize) -> &mut Self::Output {
         self.subsumed_flag = true;
         self.patterns.index_mut(index)
     }
 }
 
-impl FromIterator<Pattern> for ImplicantSet {
+impl FromIterator<Pattern> for Implicants {
     fn from_iter<I: IntoIterator<Item = Pattern>>(iter: I) -> Self {
-        ImplicantSet::with(Vec::from_iter(iter))
+        Implicants::with(Vec::from_iter(iter))
     }
 }
 
-impl<'a> IntoIterator for &'a ImplicantSet {
+impl<'a> IntoIterator for &'a Implicants {
     type Item = &'a Pattern;
     type IntoIter = Iter<'a, Pattern>;
 
@@ -339,7 +339,7 @@ impl<'a> IntoIterator for &'a ImplicantSet {
     }
 }
 
-impl IntoIterator for ImplicantSet {
+impl IntoIterator for Implicants {
     type Item = Pattern;
     type IntoIter = IntoIter<Pattern>;
 
@@ -348,11 +348,11 @@ impl IntoIterator for ImplicantSet {
     }
 }
 
-impl FromStr for ImplicantSet {
+impl FromStr for Implicants {
     type Err = BokitError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut result = ImplicantSet::default();
+        let mut result = Implicants::default();
         for elt in s.trim().split(&PATTERN_SEPARATORS[..]) {
             result.push(elt.parse()?);
         }
@@ -360,16 +360,16 @@ impl FromStr for ImplicantSet {
     }
 }
 
-impl<T: Into<Pattern>> From<T> for ImplicantSet {
+impl<T: Into<Pattern>> From<T> for Implicants {
     fn from(pattern: T) -> Self {
-        let mut implicants = ImplicantSet::default();
+        let mut implicants = Implicants::default();
         implicants.push_clear_subsumed(pattern.into());
         implicants
     }
 }
 
-impl Rule for ImplicantSet {
-    fn fmt_rule(&self, f: &mut fmt::Formatter, _namer: &VariableCollection) -> fmt::Result {
+impl Rule for Implicants {
+    fn fmt_rule(&self, f: &mut fmt::Formatter, _namer: &VarSpace) -> fmt::Result {
         self.fmt(f)
     }
 
@@ -384,7 +384,7 @@ impl Rule for ImplicantSet {
     }
 }
 
-impl fmt::Display for ImplicantSet {
+impl fmt::Display for Implicants {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         for p in &self.patterns {
             writeln!(f, "{}", p)?;
@@ -403,16 +403,16 @@ mod tests {
         assert_eq!(p.positive.len(), 3);
         assert_eq!(p.negative.len(), 2);
 
-        let is1: ImplicantSet = "--01-1---0-1".parse().unwrap();
+        let is1: Implicants = "--01-1---0-1".parse().unwrap();
         assert_eq!(is1.patterns.len(), 1);
 
-        let mut is2 = "--01-1\n1-0101\n--0-1".parse::<ImplicantSet>().unwrap();
+        let mut is2 = "--01-1\n1-0101\n--0-1".parse::<Implicants>().unwrap();
         assert_eq!(is2.patterns.len(), 3);
 
         is2.clear_subsumed_patterns();
         assert_eq!(is2.patterns.len(), 2);
 
-        let implicants: ImplicantSet = "0-10;0-11;1-11".parse().unwrap();
+        let implicants: Implicants = "0-10;0-11;1-11".parse().unwrap();
         assert_eq!(implicants.len(), 3);
     }
 }

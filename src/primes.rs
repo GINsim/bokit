@@ -14,7 +14,7 @@ use std::vec::IntoIter;
 /// A set of prime implicants is a set of implicant containg all prime implicants.
 #[derive(Clone, Debug, Default)]
 pub struct Primes {
-    patterns: ImplicantSet,
+    patterns: Implicants,
 }
 
 impl Primes {
@@ -28,11 +28,11 @@ impl Primes {
         self.patterns.is_empty()
     }
 
-    pub fn as_implicants(&self) -> &ImplicantSet {
+    pub fn as_implicants(&self) -> &Implicants {
         &self.patterns
     }
 
-    pub fn into_implicants(self) -> ImplicantSet {
+    pub fn into_implicants(self) -> Implicants {
         self.patterns
     }
 
@@ -98,7 +98,7 @@ impl Primes {
         self.merge(&mut other);
     }
 
-    fn merge_emerging(&mut self, mut emerging: ImplicantSet) {
+    fn merge_emerging(&mut self, mut emerging: Implicants) {
         if emerging.is_empty() {
             return;
         }
@@ -191,7 +191,7 @@ impl FromStr for Primes {
 }
 
 impl Rule for Primes {
-    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VariableCollection) -> fmt::Result {
+    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VarSpace) -> fmt::Result {
         self.patterns.fmt_rule(f, namer)
     }
 
@@ -237,7 +237,7 @@ mod tests {
 
     #[test]
     fn count_primes() -> Result<(), BokitError> {
-        let mut variables = VariableCollection::default();
+        let mut variables = VarSpace::default();
         let first = variables.add("first")?;
         let test = variables.add("test")?;
         let other = variables.add("other")?;
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn convert() {
-        let implicants: ImplicantSet = "0-10;0-11;1-11".parse().unwrap();
+        let implicants: Implicants = "0-10;0-11;1-11".parse().unwrap();
 
         let primes1 = Primes::from(&implicants);
 

@@ -2,7 +2,7 @@
 
 use crate::*;
 
-use crate::variable_collection::VariableCollection;
+use crate::space::VarSpace;
 use bit_set::BitSet;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -17,7 +17,7 @@ static RE_GENERIC_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*_?([01-9]+)_
 /// A variable or its raw UID can be used to set or retrieve the value of the variable in a [State] or [Pattern],
 /// but also to define atoms in [expression trees](Expr).
 ///
-/// They can be created manually by specifying the UID, or through a [variable collection](VariableCollection)
+/// They can be created manually by specifying the UID, or through a [variable collection](VarSpace)
 /// where they are associated to a human-readable identifier.
 #[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
 pub struct Variable {
@@ -38,7 +38,7 @@ impl From<usize> for Variable {
 }
 
 impl Rule for Variable {
-    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VariableCollection) -> fmt::Result {
+    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VarSpace) -> fmt::Result {
         namer.format_variable(f, *self)
     }
 
@@ -286,7 +286,7 @@ mod tests {
         assert_eq!(Variable::from_str("h12").is_err(), true);
         assert_eq!(Variable::from_str("v1y2").is_err(), true);
 
-        let mut varset = VariableCollection::default();
+        let mut varset = VarSpace::default();
         let vtest = varset.add("test")?;
         let valt = varset.add("alternative")?;
 
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn extract_state() -> Result<(), BokitError> {
-        let mut variables = VariableCollection::default();
+        let mut variables = VarSpace::default();
         let v1 = variables.add("A")?;
         let v2 = variables.add("B")?;
         let v3 = variables.add("C")?;
@@ -319,7 +319,7 @@ mod tests {
         assert_eq!(state.is_active(v4), true);
         assert_eq!(state.is_active(v5), true);
 
-        let mut varset = VariableCollection::default();
+        let mut varset = VarSpace::default();
         varset.add("test")?;
         varset.add("alternative")?;
         varset.add("third")?;
@@ -334,7 +334,7 @@ mod tests {
 
     #[test]
     fn uid_provider() {
-        let mut uids = VariableCollection::default();
+        let mut uids = VarSpace::default();
         assert_eq!(uids.add("a").unwrap().uid, 0);
         assert_eq!(uids.add("b").unwrap().uid, 1);
         assert_eq!(uids.add("c").unwrap().uid, 2);
@@ -362,7 +362,7 @@ mod tests {
 
     #[test]
     fn components() {
-        let mut uids = VariableCollection::default();
+        let mut uids = VarSpace::default();
 
         let v0 = uids.add("a").unwrap();
         let v1 = uids.add("b").unwrap();
@@ -400,7 +400,7 @@ mod tests {
 
     #[test]
     fn check_rule() {
-        let mut uids = VariableCollection::default();
+        let mut uids = VarSpace::default();
 
         let v0 = uids.add("a").unwrap();
         let v1 = uids.add("b").unwrap();

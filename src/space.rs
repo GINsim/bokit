@@ -23,7 +23,7 @@ pub enum Component<'a> {
     Group(&'a str, &'a [Variable]),
 }
 
-/// A collection of named variables.
+/// A collection of named variables defining the state space.
 ///
 /// Adding a new name to the collection triggers the creation of a variable associated to a unique integer UID
 /// (using successive UIDs for better scalability). Variables can then be used independently of the collection.
@@ -37,7 +37,7 @@ pub enum Component<'a> {
 ///
 /// # Associated variables
 ///
-/// By default, each variable created in a [collection of variables](VariableCollection) is associated to a specific name and
+/// By default, each variable created in a collection of variables is associated to a specific name and
 /// independent from other variables in the same collection. The collection can also be used to create subgroups of
 /// associated variables, related to the same core variable. The name associated with the core variable is then shared
 /// with all associated variables, identified within the subgroup by an extra tag.
@@ -47,11 +47,11 @@ pub enum Component<'a> {
 /// of relations between the variables, but this interpretation is left for the user of the API.
 ///
 /// ```
-/// use bokit::VariableCollection;
+/// use bokit::VarSpace;
 /// # use bokit::BokitError;
 /// # fn main() -> Result<(), BokitError> {
 ///
-/// let mut variables = VariableCollection::default();
+/// let mut variables = VarSpace::default();
 ///
 /// // Create a core variable and an associated one
 /// let v1 = variables.add("A")?;
@@ -66,7 +66,7 @@ pub enum Component<'a> {
 /// # }
 /// ```
 #[derive(Clone, Default, Debug)]
-pub struct VariableCollection {
+pub struct VarSpace {
     /// The list of variables
     blocks: Slab<VariableBlock>,
 
@@ -79,7 +79,7 @@ pub struct VariableCollection {
 
 /// A named rule associates a rule to a variable collection to provide prettier display output
 struct NamedRule<'a> {
-    namer: &'a VariableCollection,
+    namer: &'a VarSpace,
     rule: &'a dyn Rule,
 }
 
@@ -107,7 +107,7 @@ impl Subgroup {
     }
 }
 
-impl VariableCollection {
+impl VarSpace {
     /// Retrieve a named variable or create it if needed.
     ///
     /// If a variable with this name already exists, return it without any change in the collection.
@@ -430,7 +430,7 @@ impl VariableCollection {
     }
 }
 
-impl<'a> IntoIterator for &'a VariableCollection {
+impl<'a> IntoIterator for &'a VarSpace {
     type Item = Variable;
     type IntoIter = Box<dyn Iterator<Item = Variable> + 'a>;
 

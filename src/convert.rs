@@ -1,8 +1,8 @@
-use crate::{Expr, ImplicantSet, Pattern, Primes, SomeRule, Variable};
+use crate::{Expr, Implicants, Pattern, Primes, SomeRule, Variable};
 use std::borrow::Cow;
 
-impl From<&ImplicantSet> for Expr {
-    fn from(patterns: &ImplicantSet) -> Expr {
+impl From<&Implicants> for Expr {
+    fn from(patterns: &Implicants) -> Expr {
         patterns
             .iter()
             .fold(Expr::from(false), |expr, p| expr | Expr::from(p))
@@ -15,26 +15,26 @@ impl From<&Primes> for Expr {
     }
 }
 
-impl From<Primes> for ImplicantSet {
+impl From<Primes> for Implicants {
     fn from(primes: Primes) -> Self {
         primes.into_implicants()
     }
 }
 
-impl From<&Primes> for ImplicantSet {
+impl From<&Primes> for Implicants {
     fn from(primes: &Primes) -> Self {
         primes.as_implicants().clone()
     }
 }
 
-impl From<&ImplicantSet> for Primes {
-    fn from(implicants: &ImplicantSet) -> Self {
+impl From<&Implicants> for Primes {
+    fn from(implicants: &Implicants) -> Self {
         implicants.clone().into()
     }
 }
 
-impl From<ImplicantSet> for Primes {
-    fn from(implicants: ImplicantSet) -> Self {
+impl From<Implicants> for Primes {
+    fn from(implicants: Implicants) -> Self {
         // TODO: improve the conversion of implicants to primes
         let mut result = Self::default();
         implicants.into_iter().for_each(|p| result.add_pattern(p));
@@ -48,13 +48,13 @@ impl From<&Expr> for Primes {
     }
 }
 
-impl From<&Expr> for ImplicantSet {
+impl From<&Expr> for Implicants {
     fn from(expr: &Expr) -> Self {
         Primes::from(expr).into()
     }
 }
 
-impl From<bool> for ImplicantSet {
+impl From<bool> for Implicants {
     fn from(value: bool) -> Self {
         let mut result = Self::default();
         if value {
@@ -66,7 +66,7 @@ impl From<bool> for ImplicantSet {
 
 impl From<bool> for Primes {
     fn from(value: bool) -> Self {
-        Primes::from(ImplicantSet::from(value))
+        Primes::from(Implicants::from(value))
     }
 }
 
@@ -75,8 +75,8 @@ impl From<Expr> for SomeRule {
         SomeRule::Expr(e)
     }
 }
-impl From<ImplicantSet> for SomeRule {
-    fn from(i: ImplicantSet) -> Self {
+impl From<Implicants> for SomeRule {
+    fn from(i: Implicants) -> Self {
         SomeRule::Implicants(i)
     }
 }
@@ -106,7 +106,7 @@ impl From<&SomeRule> for Expr {
     }
 }
 
-impl From<&SomeRule> for ImplicantSet {
+impl From<&SomeRule> for Implicants {
     fn from(rule: &SomeRule) -> Self {
         match rule {
             SomeRule::Expr(e) => Self::from(e),
@@ -144,12 +144,12 @@ impl<'a> From<&'a SomeRule> for Cow<'a, Primes> {
     }
 }
 
-impl<'a> From<&'a SomeRule> for Cow<'a, ImplicantSet> {
+impl<'a> From<&'a SomeRule> for Cow<'a, Implicants> {
     fn from(rule: &'a SomeRule) -> Self {
         match rule {
             SomeRule::Implicants(b) => Cow::Borrowed(b),
             SomeRule::Primes(b) => Cow::Borrowed(b.as_implicants()),
-            _ => Cow::Owned(ImplicantSet::from(rule)),
+            _ => Cow::Owned(Implicants::from(rule)),
         }
     }
 }

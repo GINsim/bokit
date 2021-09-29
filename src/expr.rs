@@ -104,7 +104,7 @@ impl Expr {
         &self,
         f: &mut fmt::Formatter,
         p: u8,
-        namer: Option<&VariableCollection>,
+        namer: Option<&VarSpace>,
     ) -> fmt::Result {
         match self {
             Expr::Bool(true) => write!(f, "True"),
@@ -212,7 +212,7 @@ impl fmt::Display for Operator {
 }
 
 impl Rule for Expr {
-    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VariableCollection) -> fmt::Result {
+    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VarSpace) -> fmt::Result {
         self._fmt_expr(f, 0, Some(namer))
     }
 
@@ -340,7 +340,7 @@ mod tests {
         let e = a & (b | &t);
         println!("{}", &e);
 
-        let mut variables = VariableCollection::default();
+        let mut variables = VarSpace::default();
         let test = variables.add("test")?;
         let other = variables.add("other")?;
         let myvar = variables.add("myvar")?;
@@ -359,7 +359,7 @@ mod tests {
 
     #[test]
     fn eval() -> Result<(), BokitError> {
-        let mut variables = VariableCollection::default();
+        let mut variables = VarSpace::default();
         let v1 = variables.add("A")?;
         let v2 = variables.add("B")?;
         let v3 = variables.add("C")?;
@@ -371,7 +371,7 @@ mod tests {
 
         assert_eq!(e, e2);
 
-        let mut variables = VariableCollection::default();
+        let mut variables = VarSpace::default();
         let _e = variables.parse_expression_with_new_variables("(first & test) | other")?;
 
         let first = variables.add("first")?;

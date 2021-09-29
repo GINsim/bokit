@@ -65,17 +65,17 @@
 //! # Lists of implicants
 //!
 //! An implicants of a rule is a pattern such that the rule is true for all states of the pattern. A rule can then be defined
-//! by a [list of implicants](ImplicantSet) covering all states for which the rule is true. Note that this definition
+//! by a [list of implicants](Implicants) covering all states for which the rule is true. Note that this definition
 //! corresponds to the *truth table* of the rule if all implicants are single states.
 //!
 //! ```
-//! use bokit::{ImplicantSet, Pattern};
+//! use bokit::{Implicants, Pattern};
 //! # use bokit::BokitError;
 //! # fn main() -> Result<(), BokitError> {
 //!
 //! // Define a rule defined as a list of implicants.
 //! // Note that if a pattern of the list is included in one of its predecessors, it may be removed.
-//! let mut implicants: ImplicantSet = "0-10 ; 0-11 ; 1-11".parse()?;
+//! let mut implicants: Implicants = "0-10 ; 0-11 ; 1-11".parse()?;
 //! assert_eq!(implicants.len(), 3);
 //!
 //! // Unlike expressions, lists of implicants can be partially evaluated with a pattern
@@ -90,17 +90,17 @@
 //! # Prime implicants
 //!
 //! A *prime implicant* is an implicant which is not contained in any other implicant of the rule.
-//! The [list of all prime implicants](Primes) of a rule is a particular [list of implicants](ImplicantSet), with some
+//! The [list of all prime implicants](Primes) of a rule is a particular [list of implicants](Implicants), with some
 //! convenient mathematical properties. Safety checks and implicit transformations of the lists of prime implicants
 //! are used to ensure their consistency.
 //!
 //! ```
-//! use bokit::{ImplicantSet, Primes};
+//! use bokit::{Implicants, Primes};
 //! # use bokit::BokitError;
 //! # fn main() -> Result<(), BokitError> {
 //!
 //! // Get a regular list of implicants
-//! let implicants: ImplicantSet = "0-10 ; 0-11 ; 1-11".parse()?;
+//! let implicants: Implicants = "0-10 ; 0-11 ; 1-11".parse()?;
 //!
 //! // Extract the prime implicants
 //! let primes = Primes::from(&implicants);
@@ -127,18 +127,18 @@
 //!
 //! In the previous example, each variable is created explicitly by picking an integer UID. The display name of a variable
 //! (when printing the variable itself or an expression using it) is then based on this internal identifier.
-//! To facilitate the manipulation of variables, we can use a [collection of variables](VariableCollection), which lets us
+//! To facilitate the manipulation of variables, we can use a [collection of variables](VarSpace), which lets us
 //! create variables using human-readable identifiers (with some naming restrictions to enable their use in formulae).
 //!
 //! Note that the collection only carries the association between the internal UIDs and the human-readable names,
 //! the variables issued by a collection can thus be mixed (with care) with variables defined by an integer UID.
 //!
 //! ```
-//! use bokit::VariableCollection;
+//! use bokit::VarSpace;
 //! # use bokit::BokitError;
 //! # fn main() -> Result<(), BokitError> {
 //!
-//! let mut variables = VariableCollection::default();
+//! let mut variables = VarSpace::default();
 //! let v1 = variables.add("A")?;
 //! let v2 = variables.add("B")?;
 //! let v3 = variables.add("C")?;
@@ -173,7 +173,7 @@ mod rules;
 mod states;
 pub mod tools;
 mod variable;
-mod variable_collection;
+mod space;
 
 use std::collections::HashMap;
 use std::fmt;
@@ -185,10 +185,10 @@ extern crate pest_derive;
 // Export public structures and API
 pub use error::BokitError;
 pub use expr::{Expr, Operator};
-pub use implicants::ImplicantSet;
+pub use implicants::Implicants;
 pub use pattern::Pattern;
 pub use primes::Primes;
 pub use rules::{Rule, SomeRule};
 pub use states::State;
 pub use variable::{VarSet, Variable, VariableID};
-pub use variable_collection::{Component, VariableCollection};
+pub use space::{Component, VarSpace};
