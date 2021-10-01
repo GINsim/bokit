@@ -1,10 +1,12 @@
 use crate::*;
 
-use crate::variable::VariableID;
 use std::fmt;
 use std::fmt::Formatter;
 use std::iter::FromIterator;
 use std::str::FromStr;
+
+#[cfg(feature = "pyo3")]
+use pyo3::prelude::*;
 
 /// A subspace defined by sets of active and inactive variables, the others are implicitly free.
 ///
@@ -29,6 +31,7 @@ use std::str::FromStr;
 /// * Test the inclusion of a state or another pattern
 /// * Build the intersection of two patterns if it exists
 /// * Identify emerging patterns (covered by two patterns but not included in any)
+#[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 #[derive(Clone, PartialEq, Eq, Default, Debug)]
 pub struct Pattern {
     pub(crate) positive: VarSet,
@@ -44,10 +47,7 @@ impl Pattern {
     /// Create a pattern restricted to a single state
     /// To properly set all variables fixed at 0, this requires
     /// an extra parameter giving the list of variables.
-    pub fn from_state<V: VariableID>(
-        state: State,
-        variables: impl IntoIterator<Item = V>,
-    ) -> Pattern {
+    pub fn from_state(state: State, variables: impl IntoIterator<Item = Variable>) -> Pattern {
         let mut neg = VarSet::from_iter(variables);
         let mut pos = state.into();
         pos.intersect_with(&neg);
@@ -61,7 +61,7 @@ impl Pattern {
     /// If it was fixed to the same value, the pattern is unchanged.
     /// If it was fixed to the opposite value, the existing restriction
     /// is replaced by the new one (giving a mirror pattern).
-    pub fn set(&mut self, var: impl VariableID, value: bool) {
+    pub fn set(&mut self, var: Variable, value: bool) {
         if value {
             self.negative.remove(var);
             self.positive.insert(var);
@@ -77,7 +77,7 @@ impl Pattern {
     /// If this constraint did not exist, nothing is changed.
     /// If the same variable had a conflict (was set at both values), the confliuct is lifted
     /// and the other constraint remains.
-    pub fn unset(&mut self, var: impl VariableID, value: bool) {
+    pub fn unset(&mut self, var: Variable, value: bool) {
         if value {
             self.positive.remove(var);
         } else {
@@ -86,7 +86,7 @@ impl Pattern {
     }
 
     /// Remove all constraints on a given variable.
-    pub fn free_variable(&mut self, var: impl VariableID) {
+    pub fn free_variable(&mut self, var: Variable) {
         self.positive.remove(var);
         self.negative.remove(var);
     }
@@ -96,7 +96,7 @@ impl Pattern {
     /// If this variable was free, this leads to a restriction of the pattern.
     /// If it was fixed to the same value, the pattern is unchanged.
     /// If it was fixed to the opposite value, a conflict is introduced
-    pub fn set_ignoring_conflicts(&mut self, var: impl VariableID, value: bool) {
+    pub fn set_ignoring_conflicts(&mut self, var: Variable, value: bool) {
         if value {
             self.positive.insert(var);
         } else {
@@ -105,7 +105,7 @@ impl Pattern {
     }
 
     /// Clone and restrict if no conflict is introduced.
-    pub fn try_set(&self, var: impl VariableID, value: bool) -> Option<Self> {
+    pub fn try_set(&self, var: Variable, value: bool) -> Option<Self> {
         if self.has_restriction(var, !value) {
             return None;
         }
@@ -115,7 +115,7 @@ impl Pattern {
     }
 
     /// Test if a variable is fixed at a specific value in this pattern
-    pub fn has_restriction(&self, var: impl VariableID, value: bool) -> bool {
+    pub fn has_restriction(&self, var: Variable, value: bool) -> bool {
         if value {
             self.positive.contains(var)
         } else {
@@ -137,8 +137,8 @@ impl Pattern {
         let mut conflicts = pos.variables.intersection(&neg.variables);
         if let Some(uid) = conflicts.next() {
             if conflicts.next().is_none() {
-                pos.remove(uid);
-                neg.remove(uid);
+                pos.remove(Variable::new(uid));
+                neg.remove(Variable::new(uid));
                 return Some(Pattern::with(pos, neg));
             }
         }
@@ -177,11 +177,11 @@ impl FromStr for Pattern {
                 ' ' | '\t' | '\'' => (), // skip spacing and ` for formatting
                 '-' => idx += 1,
                 '0' => {
-                    p.negative.insert(idx);
+                    p.negative.insert(Variable(idx));
                     idx += 1;
                 }
                 '1' => {
-                    p.positive.insert(idx);
+                    p.positive.insert(Variable(idx));
                     idx += 1;
                 }
                 _ => return Err(BokitError::InvalidExpression),
@@ -237,8 +237,8 @@ impl From<&Pattern> for Expr {
     }
 }
 
-impl<T: VariableID> From<T> for Pattern {
-    fn from(var: T) -> Self {
+impl From<Variable> for Pattern {
+    fn from(var: Variable) -> Self {
         let mut pattern = Pattern::default();
         pattern.set(var, true);
         pattern

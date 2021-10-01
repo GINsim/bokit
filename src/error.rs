@@ -1,6 +1,9 @@
 use crate::Variable;
 use thiserror::Error;
 
+#[cfg(feature = "pyo3")]
+use pyo3::{exceptions::PyValueError, PyErr};
+
 /// Error in the name of a variable.
 #[derive(Error, Debug)]
 pub enum BokitError {
@@ -19,4 +22,12 @@ pub enum BokitError {
     /// The expression is invalid
     #[error("Not a valid expression")]
     InvalidExpression,
+}
+
+#[cfg(feature = "pyo3")]
+impl From<BokitError> for PyErr {
+    fn from(_e: BokitError) -> Self {
+        // TODO: better conversion to Python errors
+        PyValueError::new_err("Something went wrong in the bokit crate")
+    }
 }

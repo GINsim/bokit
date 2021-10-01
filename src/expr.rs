@@ -182,9 +182,9 @@ impl From<bool> for Expr {
     }
 }
 
-impl<T: VariableID> From<T> for Expr {
-    fn from(u: T) -> Self {
-        Expr::Atom(Variable::from(u.uid()))
+impl From<Variable> for Expr {
+    fn from(var: Variable) -> Self {
+        Expr::Atom(var)
     }
 }
 

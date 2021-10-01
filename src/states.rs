@@ -1,8 +1,11 @@
 use crate::variable::Iter;
-use crate::{BokitError, VarSet, Variable, VariableID};
+use crate::{BokitError, VarSet, Variable};
 use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
+
+#[cfg(feature = "pyo3")]
+use pyo3::prelude::*;
 
 /// A state defined by the set of active variables, the others are implicitly inactive.
 ///
@@ -35,6 +38,7 @@ use std::str::FromStr;
 /// // Parse state strings
 /// let state3: State = "0010 01100".parse().unwrap();
 /// ```
+#[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 #[derive(Clone, Default, Debug)]
 pub struct State {
     pub(crate) active: VarSet,
@@ -42,18 +46,18 @@ pub struct State {
 
 impl State {
     /// Activate the given variable in this state
-    pub fn activate(&mut self, var: impl VariableID) {
-        self.active.insert(var.uid());
+    pub fn activate(&mut self, var: Variable) {
+        self.active.insert(var);
     }
 
     /// Disable the given variable in this state
-    pub fn disable(&mut self, var: impl VariableID) {
-        self.active.remove(var.uid());
+    pub fn disable(&mut self, var: Variable) {
+        self.active.remove(var);
     }
 
     /// Test if a specific variable is active in this state
-    pub fn is_active(&self, var: impl VariableID) -> bool {
-        self.active.contains(var.uid())
+    pub fn is_active(&self, var: Variable) -> bool {
+        self.active.contains(var)
     }
 
     pub fn active(&self) -> &VarSet {
@@ -81,14 +85,14 @@ impl<T: Into<VarSet>> From<T> for State {
     }
 }
 
-impl<A: VariableID> FromIterator<A> for State {
-    fn from_iter<I: IntoIterator<Item = A>>(iter: I) -> Self {
+impl FromIterator<Variable> for State {
+    fn from_iter<I: IntoIterator<Item = Variable>>(iter: I) -> Self {
         Self::from(VarSet::from_iter(iter))
     }
 }
 
-impl<A: VariableID> Extend<A> for State {
-    fn extend<T: IntoIterator<Item = A>>(&mut self, iter: T) {
+impl Extend<Variable> for State {
+    fn extend<T: IntoIterator<Item = Variable>>(&mut self, iter: T) {
         self.active.extend(iter);
     }
 }
@@ -113,15 +117,6 @@ impl FromStr for State {
 
 impl fmt::Display for State {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut pos = 0;
-        for v in &self.active {
-            while pos < v.uid() {
-                write!(f, "0")?;
-                pos += 1;
-            }
-            write!(f, "1")?;
-            pos += 1;
-        }
-        write!(f, "")
+        write!(f, "{}", &self.active)
     }
 }

@@ -15,3 +15,17 @@ pest_derive = "2.1"
 regex       = "1"
 slab        = "0.4"
 thiserror   = "1.0"
+
+
+[dependencies.pyo3]
+optional = true
+version  = "0.14"
+features = ["extension-module", "abi3", "abi3-py36"]
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+extension-module = ["pyo3/extension-module"]
+default = ["extension-module"]
+

@@ -10,6 +10,9 @@ use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
 
+#[cfg(feature = "pyo3")]
+use pyo3::{prelude::*, PyObjectProtocol};
+
 static RE_GENERIC_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*_?([01-9]+)_?\s*$").unwrap());
 
 /// A single Boolean variable with an integer UID.
@@ -19,21 +22,41 @@ static RE_GENERIC_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*_?([01-9]+)_
 ///
 /// They can be created manually by specifying the UID, or through a [variable collection](VarSpace)
 /// where they are associated to a human-readable identifier.
+#[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 #[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
-pub struct Variable {
-    uid: usize,
-}
+pub struct Variable(pub(crate) usize);
 
 impl Variable {
     /// Create a new variable with a specific UID
     pub fn new(uid: usize) -> Self {
-        Self::from(uid)
+        Self(uid)
+    }
+}
+
+#[cfg_attr(feature = "pyo3", pymethods)]
+impl Variable {
+    /// Create a new variable with a specific UID
+    #[cfg(feature = "pyo3")]
+    #[new]
+    pub fn py_new(uid: usize) -> Self {
+        Self(uid)
+    }
+
+    /// Return the internal integer UID
+    pub fn uid(&self) -> usize {
+        self.0
+    }
+
+    #[cfg(feature = "pyo3")]
+    #[pyo3(name = "eval")]
+    pub fn py_eval(&self, state: &State) -> bool {
+        self.eval(state)
     }
 }
 
 impl From<usize> for Variable {
     fn from(uid: usize) -> Self {
-        Self { uid }
+        Self(uid)
     }
 }
 
@@ -53,7 +76,18 @@ impl Rule for Variable {
 
 impl fmt::Display for Variable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "_{}_", self.uid)
+        write!(f, "_{}_", self.0)
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[pyproto]
+impl PyObjectProtocol<'_> for Variable {
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
     }
 }
 
@@ -66,27 +100,6 @@ impl FromStr for Variable {
             return Ok(Variable::from(uid));
         }
         Err(BokitError::InvalidExpression)
-    }
-}
-
-/// An object carrying the UID of a Boolean variable
-///
-/// This trait is implemented for the dedicated [Variable] struct or for
-/// raw integer (usize) which can be used directly to lighten some use cases.
-pub trait VariableID: Copy + Into<Variable> {
-    /// Get the integer UID of this variable
-    fn uid(&self) -> usize;
-}
-
-impl VariableID for Variable {
-    fn uid(&self) -> usize {
-        self.uid
-    }
-}
-
-impl VariableID for usize {
-    fn uid(&self) -> usize {
-        *self
     }
 }
 
@@ -114,12 +127,48 @@ impl VariableID for usize {
 /// # assert!( vs.contains(1));
 /// # assert!(!vs.contains(3));
 /// ```
+#[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 #[derive(Clone, PartialEq, Eq, Default, Debug)]
 pub struct VarSet {
     pub variables: BitSet,
 }
 
+// These functions can not be directly mapped to Python methods
 impl VarSet {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Create an iterator over the contained variables
+    pub fn iter(&self) -> Iter {
+        self.into_iter()
+    }
+}
+
+#[cfg_attr(feature = "pyo3", pymethods)]
+impl VarSet {
+    #[cfg(feature = "pyo3")]
+    #[new]
+    /// Create an empty set of variables
+    pub fn py_new() -> Self {
+        Self::new()
+    }
+
+    /// Activate the given variable in this state
+    pub fn insert(&mut self, var: Variable) {
+        self.variables.insert(var.uid());
+    }
+
+    /// Disable the given variable in this state
+    pub fn remove(&mut self, var: Variable) {
+        self.variables.remove(var.uid());
+    }
+
+    /// Test if a specific variable is active in this state
+    pub fn contains(&self, var: Variable) -> bool {
+        self.variables.contains(var.uid())
+    }
+
     /// Remove all variables from the other set
     pub fn difference_with(&mut self, vars: &Self) {
         self.variables.difference_with(&vars.variables);
@@ -143,26 +192,6 @@ impl VarSet {
     /// Return true if the two sets have no common variable
     pub fn is_disjoint(&self, other: &Self) -> bool {
         self.variables.is_disjoint(&other.variables)
-    }
-
-    /// Activate the given variable in this state
-    pub fn insert(&mut self, var: impl VariableID) {
-        self.variables.insert(var.uid());
-    }
-
-    /// Disable the given variable in this state
-    pub fn remove(&mut self, var: impl VariableID) {
-        self.variables.remove(var.uid());
-    }
-
-    /// Test if a specific variable is active in this state
-    pub fn contains(&self, var: impl VariableID) -> bool {
-        self.variables.contains(var.uid())
-    }
-
-    /// Create an iterator over the contained variables
-    pub fn iter(&self) -> Iter {
-        self.into_iter()
     }
 
     /// Return the number of variables in this set
@@ -208,8 +237,8 @@ impl AsMut<BitSet> for VarSet {
     }
 }
 
-impl<A: VariableID> FromIterator<A> for VarSet {
-    fn from_iter<I: IntoIterator<Item = A>>(iter: I) -> Self {
+impl FromIterator<Variable> for VarSet {
+    fn from_iter<I: IntoIterator<Item = Variable>>(iter: I) -> Self {
         let mut vs = VarSet::default();
         for v in iter {
             vs.insert(v);
@@ -218,11 +247,37 @@ impl<A: VariableID> FromIterator<A> for VarSet {
     }
 }
 
-impl<A: VariableID> Extend<A> for VarSet {
-    fn extend<T: IntoIterator<Item = A>>(&mut self, iter: T) {
+impl Extend<Variable> for VarSet {
+    fn extend<T: IntoIterator<Item = Variable>>(&mut self, iter: T) {
         for v in iter {
             self.insert(v);
         }
+    }
+}
+
+impl fmt::Display for VarSet {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut pos = 0;
+        for v in self {
+            while pos < v.uid() {
+                write!(f, "0")?;
+                pos += 1;
+            }
+            write!(f, "1")?;
+            pos += 1;
+        }
+        write!(f, "")
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[pyproto]
+impl PyObjectProtocol<'_> for VarSet {
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
     }
 }
 
@@ -237,7 +292,7 @@ impl FromStr for VarSet {
                 ' ' | '\t' | '\'' => (), // skip spacing and ` for formatting
                 '0' => idx += 1,
                 '1' => {
-                    s.insert(idx);
+                    s.insert(Variable(idx));
                     idx += 1;
                 }
                 _ => return Err(BokitError::InvalidExpression),
@@ -248,15 +303,12 @@ impl FromStr for VarSet {
 }
 
 /// Iterate over variables in a [VarSet]
-pub struct Iter<'a> {
-    iter: bit_set::Iter<'a, u32>,
-}
+pub struct Iter<'a>(bit_set::Iter<'a, u32>);
 
 impl Iterator for Iter<'_> {
     type Item = Variable;
-
     fn next(&mut self) -> Option<Self::Item> {
-        self.iter.next().map(|uid| uid.into())
+        self.0.next().map(|uid| uid.into())
     }
 }
 
@@ -265,9 +317,7 @@ impl<'a> IntoIterator for &'a VarSet {
     type IntoIter = Iter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter {
-            iter: self.variables.iter(),
-        }
+        Iter(self.variables.iter())
     }
 }
 

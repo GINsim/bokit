@@ -9,6 +9,9 @@ use std::slice::Iter;
 use std::str::FromStr;
 use std::vec::IntoIter;
 
+#[cfg(feature = "pyo3")]
+use pyo3::prelude::*;
+
 pub(crate) static PATTERN_SEPARATORS: [char; 4] = [',', ';', '|', '\n'];
 
 /// Boolean function represented as a set of implicants.
@@ -17,6 +20,7 @@ pub(crate) static PATTERN_SEPARATORS: [char; 4] = [',', ';', '|', '\n'];
 /// The implicants in a set of implicants covering exactly all true states of the function.
 ///
 /// The list keeps track of the potential for some implicants to be contained in others.
+#[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 #[derive(Clone, Default, Debug)]
 pub struct Implicants {
     patterns: Vec<Pattern>,
@@ -29,7 +33,6 @@ impl Implicants {
     pub fn new() -> Self {
         Self::default()
     }
-
     /// Import a list of patterns as a list of implicants.
     /// If it contains at least two patterns, it will be tainted for potential subsumed patterns.
     fn with(patterns: Vec<Pattern>) -> Self {
@@ -42,11 +45,8 @@ impl Implicants {
         result
     }
 
-    /// Return the subsumed flag.
-    ///
-    /// When this flag is false, the list should not contain any pair of pattern subsuming each other.
-    pub fn subsumed_flag(&self) -> bool {
-        self.subsumed_flag
+    pub fn iter(&self) -> Iter<'_, Pattern> {
+        self.patterns.iter()
     }
 
     /// Force clearing the subsumed flag, use with extra care.
@@ -73,19 +73,6 @@ impl Implicants {
     /// Set the subsumed flag if the list contains several patterns
     pub fn reset_subsumed_flag(&mut self) {
         self.subsumed_flag = self.len() > 1;
-    }
-
-    pub fn iter(&self) -> Iter<'_, Pattern> {
-        self.patterns.iter()
-    }
-
-    /// Remove all patterns.
-    ///
-    /// The resulting empty list corresponds to the FALSE function
-    /// The flag for potentially subsumed patterns is also cleared
-    pub fn clear(&mut self) {
-        self.patterns.clear();
-        self.subsumed_flag = false;
     }
 
     /// Keep only implicants matching the provided condition.
@@ -117,6 +104,86 @@ impl Implicants {
         self.patterns.as_mut_slice()
     }
 
+    pub fn range_covers(&self, range: Range<usize>, p: &Pattern) -> bool {
+        self.patterns[range].iter().any(|t| t.contains(p))
+    }
+
+    /// Find the patterns emerging from two sets of patterns.
+    ///
+    /// These emerging pattern cover states of the two sets and are not contained in any of them
+    pub fn emerging(&self, other: &Self) -> Self {
+        let mut result = Implicants::default();
+
+        for p in &self.patterns {
+            for t in &other.patterns {
+                if let Some(e) = p.emerging_pattern(t) {
+                    // TODO: if e contains p (resp t) testing self (resp other) is not needed
+                    if self.covers(&e) || other.covers(&e) {
+                        continue;
+                    }
+                    result.push_clear_subsumed(e);
+                }
+            }
+        }
+
+        result
+    }
+
+    pub fn collect_regulators_range(&self, start: usize, end: usize, vars: &mut VarSet) {
+        self.patterns[start..end]
+            .iter()
+            .for_each(|p| p.collect_regulators(vars));
+    }
+
+    /// Remove a selection of the patterns.
+    pub fn filtered_patterns(&mut self, selection: &BitSet) {
+        // TODO: can we remove this function?
+
+        if selection.is_empty() {
+            return;
+        }
+        let mut index = 0;
+        self.patterns.retain(|_| {
+            index += 1;
+            !selection.contains(index - 1)
+        })
+    }
+
+    pub fn truncate(&mut self, end: usize) {
+        self.patterns.truncate(end)
+    }
+
+    /// Swap two elements in the list of patterns.
+    ///
+    /// Can be used to partition the list in place.
+    pub fn swap(&mut self, a: usize, b: usize) {
+        self.patterns.swap(a, b)
+    }
+
+    /// Remove a pattern and replace it with the last one
+    pub fn swap_remove(&mut self, index: usize) -> Pattern {
+        self.patterns.swap_remove(index)
+    }
+}
+
+#[cfg_attr(feature = "pyo3", pymethods)]
+impl Implicants {
+    /// Return the subsumed flag.
+    ///
+    /// When this flag is false, the list should not contain any pair of pattern subsuming each other.
+    pub fn subsumed_flag(&self) -> bool {
+        self.subsumed_flag
+    }
+
+    /// Remove all patterns.
+    ///
+    /// The resulting empty list corresponds to the FALSE function
+    /// The flag for potentially subsumed patterns is also cleared
+    pub fn clear(&mut self) {
+        self.patterns.clear();
+        self.subsumed_flag = false;
+    }
+
     /// Add a restriction to all implicants in the set.
     ///
     /// Patterns which had an opposite restriction are considered as conflicts and removed.
@@ -124,7 +191,7 @@ impl Implicants {
     /// As a result the order of the remaining implicants can be changed.
     ///
     /// The subsumed flag is enforced if the pivot separates two non-empty sublists.
-    pub fn restrict(&mut self, uid: usize, value: bool) -> usize {
+    pub fn restrict(&mut self, uid: Variable, value: bool) -> usize {
         // Start by removing all conflicting patterns
         let not_value = !value;
         self.quick_retain(|p| !p.has_restriction(uid, not_value));
@@ -157,10 +224,6 @@ impl Implicants {
         self.range_covers(0..self.len(), p)
     }
 
-    pub fn range_covers(&self, range: Range<usize>, p: &Pattern) -> bool {
-        self.patterns[range].iter().any(|t| t.contains(p))
-    }
-
     /// Remove all patterns covered by at least one pattern of the given set.
     ///
     /// Does not affect the subsumed flag.
@@ -177,33 +240,6 @@ impl Implicants {
                 self.quick_retain(|p| !other.covers(p));
             }
         }
-    }
-
-    /// Find the patterns emerging from two sets of patterns.
-    ///
-    /// These emerging pattern cover states of the two sets and are not contained in any of them
-    pub fn emerging(&self, other: &Self) -> Self {
-        let mut result = Implicants::default();
-
-        for p in &self.patterns {
-            for t in &other.patterns {
-                if let Some(e) = p.emerging_pattern(t) {
-                    // TODO: if e contains p (resp t) testing self (resp other) is not needed
-                    if self.covers(&e) || other.covers(&e) {
-                        continue;
-                    }
-                    result.push_clear_subsumed(e);
-                }
-            }
-        }
-
-        result
-    }
-
-    pub fn collect_regulators_range(&self, start: usize, end: usize, vars: &mut VarSet) {
-        self.patterns[start..end]
-            .iter()
-            .for_each(|p| p.collect_regulators(vars));
     }
 
     /// Add a pattern to the list
@@ -260,20 +296,6 @@ impl Implicants {
         self.subsumed_flag = false;
     }
 
-    /// Remove a selection of the patterns.
-    pub fn filtered_patterns(&mut self, selection: &BitSet) {
-        // TODO: can we remove this function?
-
-        if selection.is_empty() {
-            return;
-        }
-        let mut index = 0;
-        self.patterns.retain(|_| {
-            index += 1;
-            !selection.contains(index - 1)
-        })
-    }
-
     /// Check if this function is true in at least one state of the given pattern
     pub fn satisfiable_in_pattern(&self, pattern: &Pattern) -> bool {
         self.patterns.iter().any(|p| p.overlaps(pattern))
@@ -283,25 +305,10 @@ impl Implicants {
     pub fn len(&self) -> usize {
         self.patterns.len()
     }
+
     /// Return whether there are no implicant (the rule is always false)
     pub fn is_empty(&self) -> bool {
         self.patterns.is_empty()
-    }
-
-    pub fn truncate(&mut self, end: usize) {
-        self.patterns.truncate(end)
-    }
-
-    /// Swap two elements in the list of patterns.
-    ///
-    /// Can be used to partition the list in place.
-    pub fn swap(&mut self, a: usize, b: usize) {
-        self.patterns.swap(a, b)
-    }
-
-    /// Remove a pattern and replace it with the last one
-    pub fn swap_remove(&mut self, index: usize) -> Pattern {
-        self.patterns.swap_remove(index)
     }
 }
 

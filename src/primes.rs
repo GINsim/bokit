@@ -7,16 +7,21 @@ use std::slice::Iter;
 use std::str::FromStr;
 use std::vec::IntoIter;
 
+#[cfg(feature = "pyo3")]
+use pyo3::prelude::*;
+
 /// Boolean function represented as a set of prime implicants.
 ///
 /// This is a special case of ImplicantSet.
 /// An implicant is "prime" if it is not contained in any other implicant.
 /// A set of prime implicants is a set of implicant containg all prime implicants.
+#[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 #[derive(Clone, Debug, Default)]
 pub struct Primes {
     patterns: Implicants,
 }
 
+#[cfg_attr(feature = "pyo3", pymethods)]
 impl Primes {
     /// Get the number of patterns in this list of prime implicants
     pub fn len(&self) -> usize {
@@ -26,14 +31,6 @@ impl Primes {
     /// Return whether there are no prime implicant (the rule is always false)
     pub fn is_empty(&self) -> bool {
         self.patterns.is_empty()
-    }
-
-    pub fn as_implicants(&self) -> &Implicants {
-        &self.patterns
-    }
-
-    pub fn into_implicants(self) -> Implicants {
-        self.patterns
     }
 
     /// Check if this function is true in at least one state of the given pattern
@@ -48,7 +45,7 @@ impl Primes {
     /// 2) extract the unchanged patterns
     /// 3) Update all remaining patterns
     /// 4) remove newly subsumed patterns
-    pub fn restrict(&mut self, uid: usize, value: bool) {
+    pub fn restrict(&mut self, uid: Variable, value: bool) {
         // Add the restriction, eliminate conflicts and separate unchanged patterns
         let pivot = self.patterns.restrict(uid, value);
 
@@ -97,6 +94,16 @@ impl Primes {
         other.patterns.push_clear_subsumed(p);
         self.merge(&mut other);
     }
+}
+
+impl Primes {
+    pub fn into_implicants(self) -> Implicants {
+        self.patterns
+    }
+
+    pub fn as_implicants(&self) -> &Implicants {
+        &self.patterns
+    }
 
     fn merge_emerging(&mut self, mut emerging: Implicants) {
         if emerging.is_empty() {
@@ -121,7 +128,7 @@ impl Primes {
 
     fn _expand_expr(&mut self, expr: &Expr, positive: bool) {
         match expr {
-            Expr::Atom(uid) => self.restrict(uid.uid(), positive),
+            Expr::Atom(var) => self.restrict(*var, positive),
             Expr::Not(e) => self._expand_expr(e, !positive),
             Expr::Bool(b) => {
                 if *b != positive {

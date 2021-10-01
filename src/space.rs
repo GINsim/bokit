@@ -6,6 +6,9 @@ use slab::Slab;
 use std::fmt;
 use std::str::FromStr;
 
+#[cfg(feature = "pyo3")]
+use pyo3::prelude::*;
+
 static RE_UID: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^(_[01-9_]*)?[a-zA-Z][a-zA-Z01-9_]*$").unwrap());
 
@@ -65,6 +68,7 @@ pub enum Component<'a> {
 /// # Ok(())
 /// # }
 /// ```
+#[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 #[derive(Clone, Default, Debug)]
 pub struct VarSpace {
     /// The list of variables
@@ -107,6 +111,7 @@ impl Subgroup {
     }
 }
 
+#[cfg_attr(feature = "pyo3", pymethods)]
 impl VarSpace {
     /// Retrieve a named variable or create it if needed.
     ///
@@ -144,8 +149,7 @@ impl VarSpace {
     ///
     /// Returns an error if the core variable is not part of the collection.
     /// Panics if the new variable can not be created (usize or memory overflow)
-    pub fn associate(&mut self, v: impl VariableID, idx: usize) -> Result<Variable, BokitError> {
-        let v = v.into();
+    pub fn associate(&mut self, v: Variable, idx: usize) -> Result<Variable, BokitError> {
         match self.blocks.get(v.uid()) {
             None => Err(BokitError::NoSuchVariable(v)),
             Some(VariableBlock::Associated(gid, vid)) => {
@@ -167,43 +171,6 @@ impl VarSpace {
         }
     }
 
-    fn _create_subgroup(&mut self, name: String, var: Variable) -> usize {
-        let mut grp = Subgroup::new(name);
-        grp.members.push(var);
-        self.groups.insert(grp)
-    }
-
-    /// Retrieve a variable associated to a group, extending the group if needed
-    fn _associate_to_group(&mut self, gid: usize, idx: usize) -> Variable {
-        let grp = self.groups.get_mut(gid).unwrap();
-
-        for i in grp.members.len()..(idx + 1) {
-            let var = self.blocks.insert(VariableBlock::Associated(gid, i)).into();
-            grp.members.push(var);
-        }
-
-        *grp.members.get(idx).unwrap()
-    }
-
-    /// Get the component corresponding to a given variable.
-    ///
-    /// The component indicates if a variable is a regular Boolean variable ([Component::Single])
-    /// or part of a subgroup ([Component::Group]). In this case, return the same variables
-    ///for all members of the subgroup.
-    ///
-    /// Returns an error if the variable is not part of the collection.
-    pub fn get_component(&self, v: impl VariableID) -> Result<Component, BokitError> {
-        let v = v.into();
-        match self.blocks.get(v.uid()) {
-            None => Err(BokitError::NoSuchVariable(v)),
-            Some(VariableBlock::Single(name)) => Ok(Component::Single(name, v)),
-            Some(VariableBlock::Associated(gid, _)) => {
-                let grp = &self.groups[*gid];
-                Ok(Component::Group(&grp.name, &grp.members))
-            }
-        }
-    }
-
     /// Rename a variable identified by its old name and retrieve the corresponding Variable.
     ///
     /// Returns an error if the old name does not exist in the collection or if the new one is either
@@ -213,30 +180,6 @@ impl VarSpace {
         let var = self.get_variable(old)?;
         self.set_name(var, name)?;
         Ok(var)
-    }
-
-    /// Parse an expression and create new variables as needed
-    ///
-    /// Returns an error if the text is not a valid expression, and in particular
-    /// if some variable names are invalid
-    pub fn parse_expression_with_new_variables(&mut self, text: &str) -> Result<Expr, BokitError> {
-        parse::parse_expression(&mut |name| self.add(name), text)
-    }
-
-    /// Create a set of variables of this collection based on their list of names
-    ///
-    /// Returns an error if one of the names is not part of the collection, in particular if it in invalid
-    pub fn parse_variable_set(
-        &self,
-        descr: &str,
-        sep: Option<&[char]>,
-    ) -> Result<VarSet, BokitError> {
-        let separators = sep.unwrap_or(&NAME_SEPARATORS);
-        let mut vs = VarSet::default();
-        for name in descr.split(separators) {
-            vs.insert(self.get_variable(name)?);
-        }
-        Ok(vs)
     }
 
     /// Get the number of assigned Variables
@@ -252,7 +195,7 @@ impl VarSpace {
     /// Remove a given variable.
     ///
     /// This operation does not fail as it ignored variable which are not part of the collection
-    pub fn remove_variable(&mut self, var: impl VariableID) {
+    pub fn remove_variable(&mut self, var: Variable) {
         if !self.blocks.contains(var.uid()) {
             return;
         }
@@ -267,30 +210,11 @@ impl VarSpace {
         }
     }
 
-    /// Remove an associated variable from a group.
-    ///
-    /// We assume that the variable is no longer registered as associated to this group
-    /// (in most case this happens in the cleanup phase of variable removal).
-    fn _remove_from_group(&mut self, gid: usize, idx: usize) {
-        let grp = self.groups.get_mut(gid).unwrap();
-        grp.members.remove(idx);
-        if grp.members.len() == 1 {
-            // This should now be a single variable
-            self.blocks[grp.members[0].uid()] = VariableBlock::Single(grp.name.clone());
-            self.groups.remove(gid);
-        } else {
-            for (cur, v) in grp.members.iter().enumerate() {
-                self.blocks[v.uid()] = VariableBlock::Associated(gid, cur)
-            }
-        }
-    }
-
     /// Assign a new name to a variable.
     ///
     /// Returns an error if the variable is not part of the collection or if the new name
     /// is either invalid or already associated to another variable.
-    pub fn set_name(&mut self, v: impl VariableID, name: &str) -> Result<(), BokitError> {
-        let v = v.into();
+    pub fn set_name(&mut self, v: Variable, name: &str) -> Result<(), BokitError> {
         if !self.contains(v) {
             return Err(BokitError::NoSuchVariable(v));
         }
@@ -321,13 +245,8 @@ impl VarSpace {
     }
 
     /// Check if a variable is part of the collection
-    pub fn contains(&self, var: impl VariableID) -> bool {
+    pub fn contains(&self, var: Variable) -> bool {
         self.blocks.get(var.uid()).is_some()
-    }
-
-    /// Check if all variables are part of this collection
-    pub fn contains_all<A: VariableID, T: IntoIterator<Item = A>>(&self, col: T) -> bool {
-        !col.into_iter().any(|v| !self.contains(v))
     }
 
     /// Check if all variables of the set are part of this collection
@@ -339,16 +258,6 @@ impl VarSpace {
     /// Check if a name is part of the collection
     pub fn contains_name(&self, name: &str) -> bool {
         self.name2uid.contains_key(name)
-    }
-
-    /// Check if all variables names are part of this collection
-    pub fn contains_all_names<'a, T: IntoIterator<Item = &'a str>>(&self, col: T) -> bool {
-        !col.into_iter().any(|v| !self.contains_name(v))
-    }
-
-    /// Parse an expression using variable names
-    pub fn parse_expression(&self, text: &str) -> Result<Expr, BokitError> {
-        parse::parse_expression(&mut |name| self.get_variable(name), text)
     }
 
     /// Parse a state using variable names from this set
@@ -363,6 +272,58 @@ impl VarSpace {
         Ok(state)
     }
 
+    /// Search a variable with the given name
+    pub fn get_variable(&self, name: &str) -> Result<Variable, BokitError> {
+        match self.name2uid.get(name) {
+            None => match Variable::from_str(name) {
+                Ok(v) => Ok(v),
+                Err(_) => Err(BokitError::NoSuchVariableName(String::from(name))),
+            },
+            Some(var) => Ok(*var),
+        }
+    }
+}
+
+impl VarSpace {
+    // TODO: this function needs new Expr
+    /// Parse an expression and create new variables as needed
+    ///
+    /// Returns an error if the text is not a valid expression, and in particular
+    /// if some variable names are invalid
+    pub fn parse_expression_with_new_variables(&mut self, text: &str) -> Result<Expr, BokitError> {
+        parse::parse_expression(&mut |name| self.add(name), text)
+    }
+    /// Parse an expression using variable names
+    pub fn parse_expression(&self, text: &str) -> Result<Expr, BokitError> {
+        parse::parse_expression(&mut |name| self.get_variable(name), text)
+    }
+
+    /// Check if all variables are part of this collection
+    pub fn contains_all<T: IntoIterator<Item = Variable>>(&self, col: T) -> bool {
+        !col.into_iter().any(|v| !self.contains(v))
+    }
+
+    /// Check if all variables names are part of this collection
+    pub fn contains_all_names<'a, T: IntoIterator<Item = &'a str>>(&self, col: T) -> bool {
+        !col.into_iter().any(|v| !self.contains_name(v))
+    }
+
+    /// Create a set of variables of this collection based on their list of names
+    ///
+    /// Returns an error if one of the names is not part of the collection, in particular if it in invalid
+    pub fn parse_variable_set(
+        &self,
+        descr: &str,
+        sep: Option<&[char]>,
+    ) -> Result<VarSet, BokitError> {
+        let separators = sep.unwrap_or(&NAME_SEPARATORS);
+        let mut vs = VarSet::default();
+        for name in descr.split(separators) {
+            vs.insert(self.get_variable(name)?);
+        }
+        Ok(vs)
+    }
+
     /// Apply variable names from this collection to a rule.
     ///
     /// This operation is only useful to display rules (especially expressions) or variables.
@@ -374,24 +335,12 @@ impl VarSpace {
         NamedRule { namer: self, rule }
     }
 
-    /// Check that a rule uses only variables included in this collection
-    pub fn check_rule(&self, rule: &dyn Rule) -> Result<(), BokitError> {
-        let regulators = rule.get_regulators();
-        // TODO: cache variables for faster check?
-        for i in regulators.iter() {
-            if !self.contains(i) {
-                return Err(BokitError::NoSuchVariable(i));
-            }
-        }
-        Ok(())
-    }
-
     /// Insert the name of a variable during a display operation.
     ///
     /// The default implementation generates a generic name based on the variable UID.
-    pub fn format_variable(&self, f: &mut fmt::Formatter, var: impl VariableID) -> fmt::Result {
+    pub fn format_variable(&self, f: &mut fmt::Formatter, var: Variable) -> fmt::Result {
         match self.blocks.get(var.uid()) {
-            None => write!(f, "{}", var.into()),
+            None => write!(f, "{}", var),
             Some(VariableBlock::Single(s)) => write!(f, "{}", s),
             Some(VariableBlock::Associated(gid, t)) => {
                 write!(f, "{}:{}", self.groups.get(*gid).unwrap().name, t)
@@ -399,14 +348,57 @@ impl VarSpace {
         }
     }
 
-    /// Search a variable with the given name
-    pub fn get_variable(&self, name: &str) -> Result<Variable, BokitError> {
-        match self.name2uid.get(name) {
-            None => match Variable::from_str(name) {
-                Ok(v) => Ok(v),
-                Err(_) => Err(BokitError::NoSuchVariableName(String::from(name))),
-            },
-            Some(var) => Ok(*var),
+    fn _create_subgroup(&mut self, name: String, var: Variable) -> usize {
+        let mut grp = Subgroup::new(name);
+        grp.members.push(var);
+        self.groups.insert(grp)
+    }
+
+    /// Retrieve a variable associated to a group, extending the group if needed
+    fn _associate_to_group(&mut self, gid: usize, idx: usize) -> Variable {
+        let grp = self.groups.get_mut(gid).unwrap();
+
+        for i in grp.members.len()..(idx + 1) {
+            let var = self.blocks.insert(VariableBlock::Associated(gid, i)).into();
+            grp.members.push(var);
+        }
+
+        *grp.members.get(idx).unwrap()
+    }
+
+    /// Get the component corresponding to a given variable.
+    ///
+    /// The component indicates if a variable is a regular Boolean variable ([Component::Single])
+    /// or part of a subgroup ([Component::Group]). In this case, return the same variables
+    ///for all members of the subgroup.
+    ///
+    /// Returns an error if the variable is not part of the collection.
+    pub fn get_component(&self, v: Variable) -> Result<Component, BokitError> {
+        match self.blocks.get(v.uid()) {
+            None => Err(BokitError::NoSuchVariable(v)),
+            Some(VariableBlock::Single(name)) => Ok(Component::Single(name, v)),
+            Some(VariableBlock::Associated(gid, _)) => {
+                let grp = &self.groups[*gid];
+                Ok(Component::Group(&grp.name, &grp.members))
+            }
+        }
+    }
+
+    /// Remove an associated variable from a group.
+    ///
+    /// We assume that the variable is no longer registered as associated to this group
+    /// (in most case this happens in the cleanup phase of variable removal).
+    fn _remove_from_group(&mut self, gid: usize, idx: usize) {
+        let grp = self.groups.get_mut(gid).unwrap();
+        grp.members.remove(idx);
+        if grp.members.len() == 1 {
+            // This should now be a single variable
+            self.blocks[grp.members[0].uid()] = VariableBlock::Single(grp.name.clone());
+            self.groups.remove(gid);
+        } else {
+            for (cur, v) in grp.members.iter().enumerate() {
+                self.blocks[v.uid()] = VariableBlock::Associated(gid, cur)
+            }
         }
     }
 
@@ -427,6 +419,18 @@ impl VarSpace {
                 Some(Component::Group(&grp.name, &grp.members))
             }
         }))
+    }
+
+    /// Check that a rule uses only variables included in this collection
+    pub fn check_rule(&self, rule: &dyn Rule) -> Result<(), BokitError> {
+        let regulators = rule.get_regulators();
+        // TODO: cache variables for faster check?
+        for i in regulators.iter() {
+            if !self.contains(i) {
+                return Err(BokitError::NoSuchVariable(i));
+            }
+        }
+        Ok(())
     }
 }
 
