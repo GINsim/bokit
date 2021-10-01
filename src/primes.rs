@@ -1,6 +1,6 @@
 use crate::*;
 
-use crate::implicants::{covers_slice, PATTERN_SEPARATORS};
+use crate::implicants::covers_slice;
 use crate::tools::quick_partition;
 use std::iter::FromIterator;
 use std::slice::Iter;
@@ -9,7 +9,7 @@ use std::vec::IntoIter;
 
 use crate::expr::{ExprNode, Operator};
 #[cfg(feature = "pyo3")]
-use pyo3::prelude::*;
+use pyo3::{exceptions::PyValueError, prelude::*, PyObjectProtocol};
 
 /// Boolean function represented as a set of prime implicants.
 ///
@@ -24,6 +24,21 @@ pub struct Primes {
 
 #[cfg_attr(feature = "pyo3", pymethods)]
 impl Primes {
+    #[cfg(feature = "pyo3")]
+    #[new]
+    fn new_py(arg: Option<&PyAny>) -> PyResult<Self> {
+        match arg {
+            None => Ok(Primes::from(false)),
+            Some(obj) => extract_primes(obj),
+        }
+    }
+
+    #[cfg(feature = "pyo3")]
+    #[pyo3(name = "eval")]
+    fn eval_py(&self, state: &State) -> bool {
+        self.eval(state)
+    }
+
     /// Get the number of patterns in this list of prime implicants
     pub fn len(&self) -> usize {
         self.patterns.len()
@@ -158,6 +173,32 @@ impl Primes {
     }
 }
 
+#[cfg(feature = "pyo3")]
+fn extract_primes(obj: &PyAny) -> PyResult<Primes> {
+    if let Ok(e) = obj.extract::<'_, Primes>() {
+        return Ok(e);
+    }
+    if let Ok(e) = obj.extract::<'_, Implicants>() {
+        return Ok(Primes::from(e));
+    }
+    if let Ok(e) = obj.extract::<'_, Variable>() {
+        return Ok(Primes::from(e));
+    }
+    if let Ok(e) = obj.extract::<'_, bool>() {
+        return Ok(Primes::from(e));
+    }
+    if let Ok(e) = obj.extract::<'_, &str>() {
+        return Ok(e.parse()?);
+    }
+    if let Ok(e) = obj.extract::<'_, Expr>() {
+        return Ok(Primes::from(e));
+    }
+    Err(PyValueError::new_err(format!(
+        "'{}' can not be converted to 'Expr'",
+        obj.get_type().name()?
+    )))
+}
+
 impl FromIterator<Pattern> for Primes {
     fn from_iter<I: IntoIterator<Item = Pattern>>(iter: I) -> Self {
         let mut primes = Primes::default();
@@ -165,6 +206,12 @@ impl FromIterator<Pattern> for Primes {
             primes.add_pattern(p);
         }
         primes
+    }
+}
+
+impl<T: Into<Pattern>> From<T> for Primes {
+    fn from(pattern: T) -> Self {
+        Primes::from(Implicants::from(pattern))
     }
 }
 
@@ -190,11 +237,7 @@ impl FromStr for Primes {
     type Err = BokitError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut result = Primes::default();
-        for elt in s.split(&PATTERN_SEPARATORS[..]) {
-            result.add_pattern(elt.parse()?);
-        }
-        Ok(result)
+        Ok(Primes::from(s.parse::<Implicants>()?))
     }
 }
 
@@ -216,6 +259,17 @@ impl Rule for Primes {
 impl fmt::Display for Primes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.patterns.fmt(f)
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[pyproto]
+impl PyObjectProtocol<'_> for Primes {
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+    fn __repr__(&self) -> String {
+        format!("{}", self)
     }
 }
 

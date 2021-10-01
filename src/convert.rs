@@ -47,10 +47,20 @@ impl From<&Expr> for Primes {
         Self::from_expr(expr)
     }
 }
+impl From<Expr> for Primes {
+    fn from(expr: Expr) -> Self {
+        Self::from_expr(&expr)
+    }
+}
 
 impl From<&Expr> for Implicants {
     fn from(expr: &Expr) -> Self {
         Primes::from(expr).into()
+    }
+}
+impl From<Expr> for Implicants {
+    fn from(expr: Expr) -> Self {
+        Primes::from(&expr).into()
     }
 }
 

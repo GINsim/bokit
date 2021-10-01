@@ -7,7 +7,7 @@ use std::fmt;
 use std::str::FromStr;
 
 #[cfg(feature = "pyo3")]
-use pyo3::prelude::*;
+use pyo3::{exceptions::PyValueError, prelude::*, PyMappingProtocol};
 
 static RE_UID: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^(_[01-9_]*)?[a-zA-Z][a-zA-Z01-9_]*$").unwrap());
@@ -113,6 +113,12 @@ impl Subgroup {
 
 #[cfg_attr(feature = "pyo3", pymethods)]
 impl VarSpace {
+    #[cfg(feature = "pyo3")]
+    #[new]
+    fn new_py() -> Self {
+        Self::default()
+    }
+
     /// Retrieve a named variable or create it if needed.
     ///
     /// If a variable with this name already exists, return it without any change in the collection.
@@ -180,6 +186,35 @@ impl VarSpace {
         let var = self.get_variable(old)?;
         self.set_name(var, name)?;
         Ok(var)
+    }
+
+    #[cfg(feature = "pyo3")]
+    /// Display a variable or an expression using the associated names in this group
+    fn display(&self, obj: &PyAny) -> PyResult<String> {
+        if let Ok(v) = obj.extract::<Variable>() {
+            return Ok(format!("{}", self.named(&v)));
+        }
+
+        if let Ok(v) = obj.extract::<Expr>() {
+            return Ok(format!("{}", self.named(&v)));
+        }
+
+        Err(PyValueError::new_err(format!(
+            "Don't know how to display type '{}'",
+            obj.get_type().name()?
+        )))
+    }
+
+    /// Parse an expression and create new variables as needed
+    ///
+    /// Returns an error if the text is not a valid expression, and in particular
+    /// if some variable names are invalid
+    pub fn parse_expression_with_new_variables(&mut self, text: &str) -> Result<Expr, BokitError> {
+        parse::parse_expression(&mut |name| self.add(name), text)
+    }
+    /// Parse an expression using variable names
+    pub fn parse_expression(&self, text: &str) -> Result<Expr, BokitError> {
+        parse::parse_expression(&mut |name| self.get_variable(name), text)
     }
 
     /// Get the number of assigned Variables
@@ -285,19 +320,6 @@ impl VarSpace {
 }
 
 impl VarSpace {
-    // TODO: this function needs new Expr
-    /// Parse an expression and create new variables as needed
-    ///
-    /// Returns an error if the text is not a valid expression, and in particular
-    /// if some variable names are invalid
-    pub fn parse_expression_with_new_variables(&mut self, text: &str) -> Result<Expr, BokitError> {
-        parse::parse_expression(&mut |name| self.add(name), text)
-    }
-    /// Parse an expression using variable names
-    pub fn parse_expression(&self, text: &str) -> Result<Expr, BokitError> {
-        parse::parse_expression(&mut |name| self.get_variable(name), text)
-    }
-
     /// Check if all variables are part of this collection
     pub fn contains_all<T: IntoIterator<Item = Variable>>(&self, col: T) -> bool {
         !col.into_iter().any(|v| !self.contains(v))
@@ -446,5 +468,16 @@ impl<'a> IntoIterator for &'a VarSpace {
 impl fmt::Display for NamedRule<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.rule.fmt_rule(f, self.namer)
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[pyproto]
+impl PyMappingProtocol<'_> for VarSpace {
+    fn __len__(&self) -> usize {
+        self.len()
+    }
+    fn __getitem__(&self, key: &str) -> PyResult<Variable> {
+        Ok(self.get_variable(key)?)
     }
 }

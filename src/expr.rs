@@ -183,6 +183,9 @@ fn extract_expr(obj: &PyAny) -> PyResult<Expr> {
     if let Ok(e) = obj.extract::<'_, Variable>() {
         return Ok(Expr::from(e));
     }
+    if let Ok(e) = obj.extract::<'_, Pattern>() {
+        return Ok(Expr::from(e));
+    }
     if let Ok(e) = obj.extract::<'_, bool>() {
         return Ok(Expr::from(e));
     }
@@ -233,6 +236,13 @@ impl From<Variable> for Expr {
     }
 }
 
+impl From<Pattern> for Expr {
+    fn from(p: Pattern) -> Self {
+        let e = p.positive.iter().fold(Expr::from(true), |e, v| e & v);
+        p.negative.iter().fold(e, |e, v| e & !v)
+    }
+}
+
 impl From<Arc<Expr>> for Expr {
     fn from(r: Arc<Expr>) -> Self {
         match Arc::<Expr>::try_unwrap(r) {
@@ -258,7 +268,7 @@ impl PyObjectProtocol<'_> for Expr {
         format!("{}", self)
     }
     fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        format!("{}", self)
     }
 }
 

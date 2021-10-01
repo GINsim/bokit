@@ -54,6 +54,18 @@ impl Pattern {
         neg.difference_with(&pos);
         Pattern::with(pos, neg)
     }
+}
+
+#[cfg_attr(feature = "pyo3", pymethods)]
+impl Pattern {
+    #[cfg(feature = "pyo3")]
+    #[new]
+    fn new_py(s: Option<&str>) -> PyResult<Self> {
+        Ok(match s {
+            Some(descr) => Pattern::from_str(descr)?,
+            None => Pattern::default(),
+        })
+    }
 
     /// Fix a variable to a specific value.
     ///

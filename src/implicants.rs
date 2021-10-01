@@ -341,6 +341,9 @@ fn extract_implicants(obj: &PyAny) -> PyResult<Implicants> {
     if let Ok(e) = obj.extract::<'_, &str>() {
         return Ok(e.parse()?);
     }
+    if let Ok(e) = obj.extract::<'_, Expr>() {
+        return Ok(Implicants::from(e));
+    }
     Err(PyValueError::new_err(format!(
         "'{}' can not be converted to 'Expr'",
         obj.get_type().name()?
@@ -442,7 +445,7 @@ impl PyObjectProtocol<'_> for Implicants {
         format!("{}", self)
     }
     fn __repr__(&self) -> String {
-        format!("{:?}", self)
+        format!("{}", self)
     }
 }
 
