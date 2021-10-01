@@ -9,6 +9,7 @@ use std::vec::IntoIter;
 
 #[cfg(feature = "pyo3")]
 use pyo3::prelude::*;
+use crate::expr::{ExprNode, Operator};
 
 /// Boolean function represented as a set of prime implicants.
 ///
@@ -127,15 +128,15 @@ impl Primes {
     }
 
     fn _expand_expr(&mut self, expr: &Expr, positive: bool) {
-        match expr {
-            Expr::Atom(var) => self.restrict(*var, positive),
-            Expr::Not(e) => self._expand_expr(e, !positive),
-            Expr::Bool(b) => {
+        match &expr.0 {
+            ExprNode::Atom(var) => self.restrict(*var, positive),
+            ExprNode::Not(e) => self._expand_expr(e, !positive),
+            ExprNode::Bool(b) => {
                 if *b != positive {
                     self.patterns.clear();
                 }
             }
-            Expr::Operation(op, children) => match (positive, op) {
+            ExprNode::Operation(op, children) => match (positive, op) {
                 (true, Operator::And) => self._expand_and(children, positive),
                 (false, Operator::Or) => self._expand_and(children, positive),
                 (true, Operator::Or) => self._expand_or(children, positive),

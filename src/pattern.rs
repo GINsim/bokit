@@ -6,7 +6,7 @@ use std::iter::FromIterator;
 use std::str::FromStr;
 
 #[cfg(feature = "pyo3")]
-use pyo3::prelude::*;
+use pyo3::{prelude::*, PyObjectProtocol};
 
 /// A subspace defined by sets of active and inactive variables, the others are implicitly free.
 ///
@@ -227,6 +227,17 @@ impl fmt::Display for Pattern {
         }
         let s: String = result.iter().collect();
         write!(f, "{}", &s)
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[pyproto]
+impl PyObjectProtocol<'_> for Pattern {
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
     }
 }
 

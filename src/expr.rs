@@ -10,6 +10,9 @@ use once_cell::sync::Lazy;
 use std::fmt::Debug;
 use std::str::FromStr;
 
+#[cfg(feature = "pyo3")]
+use pyo3::{exceptions::PyValueError, PyNumberProtocol, PyObjectProtocol};
+
 /// A Boolean expression tree.
 ///
 /// Represents a Boolean rule as a tree where internal nodes are classical Boolean operations
@@ -57,8 +60,13 @@ use std::str::FromStr;
 /// # Ok(())
 /// # }
 /// ```
+#[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 #[derive(Clone, PartialEq, Debug)]
-pub enum Expr {
+pub struct Expr(pub(crate) ExprNode);
+
+/// A node in an expression tree
+#[derive(Clone, PartialEq, Debug)]
+pub enum ExprNode {
     /// A simple Boolean (true/false) expression
     Bool(bool),
     /// A variable literal
@@ -80,18 +88,18 @@ pub enum Operator {
 
 impl Expr {
     fn into_join(self, e: Expr, o: Operator) -> Self {
-        match (&self, o, &e) {
-            (Expr::Bool(true), Operator::And, _) => e,
-            (Expr::Bool(false), Operator::And, _) => self,
-            (Expr::Bool(true), Operator::Or, _) => self,
-            (Expr::Bool(false), Operator::Or, _) => e,
+        match (&self.0, o, &e.0) {
+            (ExprNode::Bool(true), Operator::And, _) => e,
+            (ExprNode::Bool(false), Operator::And, _) => self,
+            (ExprNode::Bool(true), Operator::Or, _) => self,
+            (ExprNode::Bool(false), Operator::Or, _) => e,
 
-            (_, Operator::And, Expr::Bool(true)) => self,
-            (_, Operator::And, Expr::Bool(false)) => e,
-            (_, Operator::Or, Expr::Bool(true)) => e,
-            (_, Operator::Or, Expr::Bool(false)) => self,
+            (_, Operator::And, ExprNode::Bool(true)) => self,
+            (_, Operator::And, ExprNode::Bool(false)) => e,
+            (_, Operator::Or, ExprNode::Bool(true)) => e,
+            (_, Operator::Or, ExprNode::Bool(false)) => self,
 
-            _ => Expr::Operation(o, Arc::new((self, e))),
+            _ => Expr(ExprNode::Operation(o, Arc::new((self, e)))),
         }
     }
 
@@ -101,18 +109,18 @@ impl Expr {
     /// * the priority of the parent to decide when to add parenthesis,
     /// * a closure to format atoms, enabling to switch from generic names to search in a custom data structure.
     fn _fmt_expr(&self, f: &mut fmt::Formatter, p: u8, namer: Option<&VarSpace>) -> fmt::Result {
-        match self {
-            Expr::Bool(true) => write!(f, "True"),
-            Expr::Bool(false) => write!(f, "False"),
-            Expr::Atom(v) => match namer {
+        match &self.0 {
+            ExprNode::Bool(true) => write!(f, "True"),
+            ExprNode::Bool(false) => write!(f, "False"),
+            ExprNode::Atom(v) => match namer {
                 Some(n) => n.format_variable(f, *v),
                 None => fmt::Display::fmt(v, f),
             },
-            Expr::Not(e) => {
+            ExprNode::Not(e) => {
                 write!(f, "!")?;
                 e._fmt_expr(f, u8::MAX, namer)
             }
-            Expr::Operation(o, c) => {
+            ExprNode::Operation(o, c) => {
                 let np = o.priority();
                 if np < p {
                     write!(f, "(")?;
@@ -132,11 +140,11 @@ impl Expr {
     }
 
     fn _eval(&self, state: &State, positive: bool) -> bool {
-        match self {
-            Expr::Bool(b) => *b == positive,
-            Expr::Not(e) => e._eval(state, !positive),
-            Expr::Atom(var) => positive == state.is_active(*var),
-            Expr::Operation(op, children) => {
+        match &self.0 {
+            ExprNode::Bool(b) => *b == positive,
+            ExprNode::Not(e) => e._eval(state, !positive),
+            ExprNode::Atom(var) => positive == state.is_active(*var),
+            ExprNode::Operation(op, children) => {
                 let b1 = children.0._eval(state, positive);
                 let b2 = Lazy::new(|| children.1._eval(state, positive));
                 match (positive, op) {
@@ -149,6 +157,44 @@ impl Expr {
         }
     }
 }
+
+#[cfg(feature = "pyo3")]
+#[pymethods]
+impl Expr {
+    #[new]
+    fn py_new(arg: Option<&PyAny>) -> PyResult<Self> {
+        match arg {
+            None => Ok(Expr::from(false)),
+            Some(obj) => extract_expr(obj),
+        }
+    }
+
+    #[pyo3(name = "eval")]
+    fn py_eval(&self, state: &State) -> bool {
+        self.eval(&state)
+    }
+}
+
+#[cfg(feature = "pyo3")]
+fn extract_expr(obj: &PyAny) -> PyResult<Expr> {
+    if let Ok(e) = obj.extract::<'_, Expr>() {
+        return Ok(e);
+    }
+    if let Ok(e) = obj.extract::<'_, Variable>() {
+        return Ok(Expr::from(e));
+    }
+    if let Ok(e) = obj.extract::<'_, bool>() {
+        return Ok(Expr::from(e));
+    }
+    if let Ok(e) = obj.extract::<'_, &str>() {
+        return Ok(Expr::from_str(e)?);
+    }
+    Err(PyValueError::new_err(format!(
+        "'{}' cannot be converted to 'Expr'",
+        obj.get_type().name()?
+    )))
+}
+
 
 impl Operator {
     /// Define the priority of operators
@@ -178,13 +224,13 @@ impl From<&Expr> for Expr {
 
 impl From<bool> for Expr {
     fn from(b: bool) -> Self {
-        Expr::Bool(b)
+        Self(ExprNode::Bool(b))
     }
 }
 
 impl From<Variable> for Expr {
     fn from(var: Variable) -> Self {
-        Expr::Atom(var)
+        Self(ExprNode::Atom(var))
     }
 }
 
@@ -206,6 +252,17 @@ impl fmt::Display for Operator {
     }
 }
 
+#[cfg(feature = "pyo3")]
+#[pyproto]
+impl PyObjectProtocol<'_> for Expr {
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
 impl Rule for Expr {
     fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VarSpace) -> fmt::Result {
         self._fmt_expr(f, 0, Some(namer))
@@ -216,11 +273,11 @@ impl Rule for Expr {
     }
 
     fn collect_regulators(&self, regulators: &mut VarSet) {
-        match self {
-            Expr::Bool(_) => (),
-            Expr::Atom(v) => regulators.insert(*v),
-            Expr::Not(e) => e.collect_regulators(regulators),
-            Expr::Operation(_, children) => {
+        match &self.0 {
+            ExprNode::Bool(_) => (),
+            ExprNode::Atom(v) => regulators.insert(*v),
+            ExprNode::Not(e) => e.collect_regulators(regulators),
+            ExprNode::Operation(_, children) => {
                 children.0.collect_regulators(regulators);
                 children.1.collect_regulators(regulators);
             }
@@ -242,10 +299,10 @@ impl fmt::Display for Expr {
 impl Not for Expr {
     type Output = Self;
     fn not(self) -> Self::Output {
-        match self {
-            Expr::Bool(b) => Expr::Bool(!b),
-            Expr::Not(e) => Expr::from(e),
-            _ => Expr::Not(Arc::new(self.clone())),
+        match self.0 {
+            ExprNode::Bool(b) => Expr::from(!b),
+            ExprNode::Not(e) => Expr::from(e),
+            _ => Expr(ExprNode::Not(Arc::new(self))),
         }
     }
 }
@@ -253,10 +310,10 @@ impl Not for Expr {
 impl Not for &Expr {
     type Output = Expr;
     fn not(self) -> Self::Output {
-        match self {
-            Expr::Bool(b) => Expr::Bool(!*b),
-            Expr::Not(e) => Expr::clone(e),
-            _ => Expr::Not(Arc::new(self.clone())),
+        match &self.0 {
+            ExprNode::Bool(b) => Expr::from(!*b),
+            ExprNode::Not(e) => Expr::clone(e),
+            _ => Expr(ExprNode::Not(Arc::new(self.clone()))),
         }
     }
 }
@@ -309,6 +366,39 @@ impl<T: Into<Expr>> BitOr<T> for Variable {
         Expr::from(self).into_join(rhs.into(), Operator::Or)
     }
 }
+
+// Operator overloading for turn Variable into expressions literals
+#[cfg(feature = "pyo3")]
+#[pyproto]
+impl PyNumberProtocol for Variable {
+    fn __or__(lhs: Self, rhs: &PyAny) -> PyResult<Expr> {
+        Expr::__or__(Expr::from(lhs), rhs)
+    }
+
+    fn __and__(lhs: Self, rhs: &PyAny) -> PyResult<Expr> {
+        Expr::__and__(Expr::from(lhs), rhs)
+    }
+    fn __invert__(&self) -> Expr {
+        !Expr::from(*self)
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[pyproto]
+impl PyNumberProtocol for Expr {
+    fn __or__(lhs: Self, rhs: &PyAny) -> PyResult<Expr> {
+        Ok(lhs | extract_expr(rhs)?)
+    }
+
+    fn __and__(lhs: Self, rhs: &PyAny) -> PyResult<Expr> {
+        Ok(lhs & extract_expr(rhs)?)
+    }
+
+    fn __invert__(&self) -> Expr {
+        self.not()
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

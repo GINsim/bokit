@@ -184,7 +184,7 @@ extern crate pest_derive;
 
 // Export public structures and API
 pub use error::BokitError;
-pub use expr::{Expr, Operator};
+pub use expr::{Expr, ExprNode, Operator};
 pub use implicants::Implicants;
 pub use pattern::Pattern;
 pub use primes::Primes;
@@ -208,6 +208,7 @@ fn bokit(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<State>()?;
     m.add_class::<Pattern>()?;
 
+    m.add_class::<Expr>()?;
     m.add_class::<Implicants>()?;
     m.add_class::<Primes>()?;
     Ok(())

@@ -36,8 +36,8 @@ fn load_expr(
 ) -> Result<Expr, BokitError> {
     let rule = expr.as_rule();
     match rule {
-        Rule::bt => Ok(Expr::Bool(true)),
-        Rule::bf => Ok(Expr::Bool(false)),
+        Rule::bt => Ok(Expr::from(true)),
+        Rule::bf => Ok(Expr::from(false)),
         Rule::lit => f(expr.as_str()).map(Expr::from),
         _ => {
             let mut inner = expr.into_inner();

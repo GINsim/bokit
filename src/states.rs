@@ -5,7 +5,7 @@ use std::iter::FromIterator;
 use std::str::FromStr;
 
 #[cfg(feature = "pyo3")]
-use pyo3::prelude::*;
+use pyo3::{prelude::*, PyObjectProtocol};
 
 /// A state defined by the set of active variables, the others are implicitly inactive.
 ///
@@ -49,7 +49,18 @@ pub struct State {
     pub(crate) active: VarSet,
 }
 
+#[cfg_attr(feature = "pyo3", pymethods)]
 impl State {
+
+    #[cfg(feature = "pyo3")]
+    #[new]
+    fn new_py(s: Option<&str>) -> PyResult<Self> {
+        Ok(match s {
+            Some(descr) => State::from_str(descr)?,
+            None => State::default(),
+        })
+    }
+
     /// Activate the given variable in this state
     pub fn activate(&mut self, var: Variable) {
         self.active.insert(var);
@@ -64,7 +75,10 @@ impl State {
     pub fn is_active(&self, var: Variable) -> bool {
         self.active.contains(var)
     }
+}
 
+impl State {
+    /// Return the inner set of active variables
     pub fn active(&self) -> &VarSet {
         &self.active
     }
@@ -83,7 +97,6 @@ impl State {
         self.active
     }
 }
-
 impl<T: Into<VarSet>> From<T> for State {
     fn from(vs: T) -> Self {
         Self { active: vs.into() }
@@ -123,5 +136,16 @@ impl FromStr for State {
 impl fmt::Display for State {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", &self.active)
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[pyproto]
+impl PyObjectProtocol<'_> for State {
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
     }
 }

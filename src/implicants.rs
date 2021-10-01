@@ -10,7 +10,7 @@ use std::str::FromStr;
 use std::vec::IntoIter;
 
 #[cfg(feature = "pyo3")]
-use pyo3::prelude::*;
+use pyo3::{exceptions::PyValueError, PyObjectProtocol, prelude::*};
 
 pub(crate) static PATTERN_SEPARATORS: [char; 4] = [',', ';', '|', '\n'];
 
@@ -168,6 +168,21 @@ impl Implicants {
 
 #[cfg_attr(feature = "pyo3", pymethods)]
 impl Implicants {
+    #[cfg(feature = "pyo3")]
+    #[new]
+    fn py_new(arg: Option<&PyAny>) -> PyResult<Self> {
+        match arg {
+            None => Ok(Implicants::from(false)),
+            Some(obj) => extract_implicants(obj),
+        }
+    }
+
+    #[cfg(feature = "pyo3")]
+    #[pyo3(name = "eval")]
+    fn py_eval(&self, state: &State) -> bool {
+        self.eval(&state)
+    }
+
     /// Return the subsumed flag.
     ///
     /// When this flag is false, the list should not contain any pair of pattern subsuming each other.
@@ -312,6 +327,27 @@ impl Implicants {
     }
 }
 
+#[cfg(feature = "pyo3")]
+fn extract_implicants(obj: &PyAny) -> PyResult<Implicants> {
+    if let Ok(e) = obj.extract::<'_, Implicants>() {
+        return Ok(e);
+    }
+    if let Ok(e) = obj.extract::<'_, Variable>() {
+        return Ok(Implicants::from(e));
+    }
+    if let Ok(e) = obj.extract::<'_, bool>() {
+        return Ok(Implicants::from(e));
+    }
+    if let Ok(e) = obj.extract::<'_, &str>() {
+        return Ok(e.parse()?);
+    }
+    Err(PyValueError::new_err(format!(
+        "'{}' can not be converted to 'Expr'",
+        obj.get_type().name()?
+    )))
+}
+
+
 pub fn covers_slice(slice: &[Pattern], p: &Pattern) -> bool {
     slice.iter().any(|t| t.contains(p))
 }
@@ -397,6 +433,17 @@ impl fmt::Display for Implicants {
             writeln!(f, "{}", p)?;
         }
         write!(f, "")
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[pyproto]
+impl PyObjectProtocol<'_> for Implicants {
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
     }
 }
 
