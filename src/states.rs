@@ -51,7 +51,6 @@ pub struct State {
 
 #[cfg_attr(feature = "pyo3", pymethods)]
 impl State {
-
     #[cfg(feature = "pyo3")]
     #[new]
     fn new_py(s: Option<&str>) -> PyResult<Self> {

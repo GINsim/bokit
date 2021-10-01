@@ -10,7 +10,7 @@ use std::str::FromStr;
 use std::vec::IntoIter;
 
 #[cfg(feature = "pyo3")]
-use pyo3::{exceptions::PyValueError, PyObjectProtocol, prelude::*};
+use pyo3::{exceptions::PyValueError, prelude::*, PyObjectProtocol};
 
 pub(crate) static PATTERN_SEPARATORS: [char; 4] = [',', ';', '|', '\n'];
 
@@ -170,7 +170,7 @@ impl Implicants {
 impl Implicants {
     #[cfg(feature = "pyo3")]
     #[new]
-    fn py_new(arg: Option<&PyAny>) -> PyResult<Self> {
+    fn new_py(arg: Option<&PyAny>) -> PyResult<Self> {
         match arg {
             None => Ok(Implicants::from(false)),
             Some(obj) => extract_implicants(obj),
@@ -179,8 +179,8 @@ impl Implicants {
 
     #[cfg(feature = "pyo3")]
     #[pyo3(name = "eval")]
-    fn py_eval(&self, state: &State) -> bool {
-        self.eval(&state)
+    fn eval_py(&self, state: &State) -> bool {
+        self.eval(state)
     }
 
     /// Return the subsumed flag.
@@ -346,7 +346,6 @@ fn extract_implicants(obj: &PyAny) -> PyResult<Implicants> {
         obj.get_type().name()?
     )))
 }
-
 
 pub fn covers_slice(slice: &[Pattern], p: &Pattern) -> bool {
     slice.iter().any(|t| t.contains(p))

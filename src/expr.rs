@@ -162,7 +162,7 @@ impl Expr {
 #[pymethods]
 impl Expr {
     #[new]
-    fn py_new(arg: Option<&PyAny>) -> PyResult<Self> {
+    fn new_py(arg: Option<&PyAny>) -> PyResult<Self> {
         match arg {
             None => Ok(Expr::from(false)),
             Some(obj) => extract_expr(obj),
@@ -170,8 +170,8 @@ impl Expr {
     }
 
     #[pyo3(name = "eval")]
-    fn py_eval(&self, state: &State) -> bool {
-        self.eval(&state)
+    fn eval_py(&self, state: &State) -> bool {
+        self.eval(state)
     }
 }
 
@@ -194,7 +194,6 @@ fn extract_expr(obj: &PyAny) -> PyResult<Expr> {
         obj.get_type().name()?
     )))
 }
-
 
 impl Operator {
     /// Define the priority of operators
@@ -398,7 +397,6 @@ impl PyNumberProtocol for Expr {
         self.not()
     }
 }
-
 
 #[cfg(test)]
 mod tests {

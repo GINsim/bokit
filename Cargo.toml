@@ -24,8 +24,3 @@ features = ["extension-module", "abi3", "abi3-py36"]
 
 [lib]
 crate-type = ["rlib", "cdylib"]
-
-[features]
-extension-module = ["pyo3/extension-module"]
-default = ["extension-module"]
-

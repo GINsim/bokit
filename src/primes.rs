@@ -7,9 +7,9 @@ use std::slice::Iter;
 use std::str::FromStr;
 use std::vec::IntoIter;
 
+use crate::expr::{ExprNode, Operator};
 #[cfg(feature = "pyo3")]
 use pyo3::prelude::*;
-use crate::expr::{ExprNode, Operator};
 
 /// Boolean function represented as a set of prime implicants.
 ///

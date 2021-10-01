@@ -38,7 +38,7 @@ impl Variable {
     /// Create a new variable with a specific UID
     #[cfg(feature = "pyo3")]
     #[new]
-    pub fn py_new(uid: usize) -> Self {
+    pub fn new_py(uid: usize) -> Self {
         Self(uid)
     }
 
@@ -49,7 +49,7 @@ impl Variable {
 
     #[cfg(feature = "pyo3")]
     #[pyo3(name = "eval")]
-    pub fn py_eval(&self, state: &State) -> bool {
+    pub fn eval_py(&self, state: &State) -> bool {
         self.eval(state)
     }
 }
@@ -152,7 +152,7 @@ impl VarSet {
     #[cfg(feature = "pyo3")]
     #[new]
     /// Create an empty set of variables
-    pub fn py_new() -> Self {
+    pub fn new_py() -> Self {
         Self::new()
     }
 
