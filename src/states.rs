@@ -19,21 +19,26 @@ use pyo3::prelude::*;
 /// use bokit::{State, Variable};
 /// use std::iter::FromIterator;
 ///
-/// let mut var = Variable::from(3);
+/// let v0 = Variable::from(0);
+/// let v1 = Variable::from(1);
+/// let v2 = Variable::from(2);
+/// let v3 = Variable::from(3);
+/// let v4 = Variable::from(4);
+/// let v6 = Variable::from(6);
 ///
 /// let mut state = State::default();
-/// state.activate(1);
-/// state.activate(var);
-/// state.disable(2);
-/// state.disable(3);
+/// state.activate(v1);
+/// state.activate(v3);
+/// state.disable(v2);
+/// state.disable(v3);
 ///
 /// // Build a state from a list of UIDs (variables or usize)
-/// let state2 = State::from_iter([2,4,6]);
+/// let state2 = State::from_iter([v2,v4,v6]);
 ///
-/// assert_eq!(state.is_active(0), false);
-/// assert_eq!(state.is_active(1), true);
-/// assert_eq!(state.is_active(2), false);
-/// assert_eq!(state.is_active(3), false);
+/// assert!(!state.is_active(v0));
+/// assert!( state.is_active(v1));
+/// assert!(!state.is_active(v2));
+/// assert!(!state.is_active(v3));
 ///
 /// // Parse state strings
 /// let state3: State = "0010 01100".parse().unwrap();

@@ -233,7 +233,7 @@ mod tests {
         assert_eq!(p.positive.len(), 0);
         assert_eq!(p.negative.len(), 0);
 
-        pi.restrict(2, true);
+        pi.restrict(Variable(2), true);
         assert_eq!(pi.len(), 1);
         let p: &Pattern = &pi.patterns[0];
         assert_eq!(p.positive.len(), 1);

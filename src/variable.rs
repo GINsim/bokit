@@ -118,14 +118,16 @@ impl FromStr for Variable {
 /// use bokit::{Variable, VarSet};
 ///
 /// let mut vs = VarSet::default();
-/// let mut var = Variable::from(3);
-/// vs.insert(1);
-/// vs.insert(var);
-/// vs.remove(3);
+/// let v0 = Variable::from(0);
+/// let v1 = Variable::from(1);
+/// let v3 = Variable::from(3);
+/// vs.insert(v1);
+/// vs.insert(v3);
+/// vs.remove(v3);
 ///
-/// # assert!(!vs.contains(0));
-/// # assert!( vs.contains(1));
-/// # assert!(!vs.contains(3));
+/// # assert!(!vs.contains(v0));
+/// # assert!( vs.contains(v1));
+/// # assert!(!vs.contains(v3));
 /// ```
 #[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 #[derive(Clone, PartialEq, Eq, Default, Debug)]
@@ -329,9 +331,9 @@ mod tests {
     #[test]
     fn extract_variable() -> Result<(), BokitError> {
         // the empty namer should recognize only generic names
-        assert_eq!(Variable::from_str("12").unwrap().uid, 12);
-        assert_eq!(Variable::from_str("_003_").unwrap().uid, 3);
-        assert_eq!(Variable::from_str("  5_  ").unwrap().uid, 5);
+        assert_eq!(Variable::from_str("12").unwrap().uid(), 12);
+        assert_eq!(Variable::from_str("_003_").unwrap().uid(), 3);
+        assert_eq!(Variable::from_str("  5_  ").unwrap().uid(), 5);
 
         assert_eq!(Variable::from_str("h12").is_err(), true);
         assert_eq!(Variable::from_str("v1y2").is_err(), true);
@@ -376,58 +378,68 @@ mod tests {
 
         let state = varset.get_state("test third")?;
         assert_eq!(2, state.active.len());
-        assert_eq!(true, state.active.contains(0));
-        assert_eq!(true, state.active.contains(2));
+        assert_eq!(true, state.active.contains(Variable(0)));
+        assert_eq!(true, state.active.contains(Variable(2)));
 
         Ok(())
     }
 
     #[test]
-    fn uid_provider() {
+    fn uid_provider() -> Result<(), BokitError> {
         let mut uids = VarSpace::default();
-        assert_eq!(uids.add("a").unwrap().uid, 0);
-        assert_eq!(uids.add("b").unwrap().uid, 1);
-        assert_eq!(uids.add("c").unwrap().uid, 2);
-        assert_eq!(uids.add("d").unwrap().uid, 3);
+
+        let va = uids.add("a")?;
+        let vb = uids.add("b")?;
+        let vc = uids.add("c")?;
+        let vd = uids.add("d")?;
+
+        assert_eq!(va.uid(), 0);
+        assert_eq!(vb.uid(), 1);
+        assert_eq!(vc.uid(), 2);
+        assert_eq!(vd.uid(), 3);
+
+        assert_eq!(uids.add("b")?, vb);
+        assert_eq!(uids.add("d")?, vd);
 
         assert_eq!(uids.len(), (&uids).into_iter().count());
         assert_eq!(uids.len(), 4);
 
-        uids.remove_variable(2);
-        uids.remove_variable(0);
+        uids.remove_variable(vc);
+        uids.remove_variable(va);
         assert_eq!(uids.len(), (&uids).into_iter().count());
         assert_eq!(uids.len(), 2);
 
-        uids.remove_variable(2);
+        uids.remove_variable(vc);
         assert_eq!(uids.len(), (&uids).into_iter().count());
         assert_eq!(uids.len(), 2);
 
-        uids.add("e").unwrap().uid;
-        uids.remove_variable(3);
+        uids.add("e")?;
+        uids.remove_variable(vd);
         assert_eq!(uids.len(), (&uids).into_iter().count());
         assert_eq!(uids.len(), 2);
 
         assert_eq!(uids.len(), (&uids).into_iter().count());
+        Ok(())
     }
 
     #[test]
-    fn components() {
+    fn components() -> Result<(), BokitError> {
         let mut uids = VarSpace::default();
 
-        let v0 = uids.add("a").unwrap();
-        let v1 = uids.add("b").unwrap();
-        let v1_0 = uids.associate(1, 0).unwrap();
-        let v1_2 = uids.associate(1, 2).unwrap();
-        let v1_1 = uids.associate(1, 1).unwrap();
-        let v4 = uids.add("c").unwrap();
-        let v5 = uids.add("d").unwrap();
+        let v0 = uids.add("a")?;
+        let v1 = uids.add("b")?;
+        let v1_0 = uids.associate(v1, 0)?;
+        let v1_2 = uids.associate(v1, 2)?;
+        let v1_1 = uids.associate(v1, 1)?;
+        let v4 = uids.add("c")?;
+        let v5 = uids.add("d")?;
 
-        assert_eq!(v0.uid, 0);
-        assert_eq!(v1.uid, 1);
-        assert_eq!(v1_0.uid, 1);
-        assert_eq!(v1_2.uid, 3);
-        assert_eq!(v4.uid, 4);
-        assert_eq!(v5.uid, 5);
+        assert_eq!(v0.uid(), 0);
+        assert_eq!(v1.uid(), 1);
+        assert_eq!(v1_0.uid(), 1);
+        assert_eq!(v1_2.uid(), 3);
+        assert_eq!(v4.uid(), 4);
+        assert_eq!(v5.uid(), 5);
 
         assert_eq!(uids.into_iter().count(), 6);
         assert_eq!(uids.iter_components().count(), 4);
@@ -446,6 +458,8 @@ mod tests {
         assert_eq!(uids.iter_components().count(), 4);
 
         assert_eq!(format!("{}", uids.named(&v1_2)), "b");
+
+        Ok(())
     }
 
     #[test]

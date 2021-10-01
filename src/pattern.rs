@@ -250,25 +250,27 @@ mod tests {
     use crate::pattern::*;
 
     #[test]
-    fn construct_and_display() {
-        let p = Pattern::from_str("-0--01-11--0-1---").unwrap();
+    fn construct_and_display() -> Result<(), BokitError> {
+        let p = Pattern::from_str("-0--01-11--0-1---")?;
 
         println!("{}", p);
 
         let mut p = Pattern::default();
         let pos = vec![1, 3, 5, 8];
         for v in pos {
-            p.set(v, true);
+            p.set(Variable(v), true);
         }
 
         // TODO: check that printing and parsing reproduces the same pattern
+
+        Ok(())
     }
 
     #[test]
-    fn emerging() {
-        let p = Pattern::from_str("101--01---").unwrap();
-        let t = Pattern::from_str("-001").unwrap();
-        let t2 = Pattern::from_str("0001").unwrap();
+    fn emerging() -> Result<(), BokitError> {
+        let p = Pattern::from_str("101--01---")?;
+        let t = Pattern::from_str("-001")?;
+        let t2 = Pattern::from_str("0001")?;
 
         assert_eq!(format!("{}", p), "101--01");
 
@@ -276,23 +278,25 @@ mod tests {
         assert_eq!(format!("{}", e), "10-1-01");
 
         assert_eq!(p.emerging_pattern(&t2).is_none(), true);
+
+        Ok(())
     }
 
     #[test]
     fn contained() {
         let mut p = Pattern::default();
         let mut t = Pattern::default();
-        p.set(3, true);
-        p.set(2, true);
+        p.set(Variable(3), true);
+        p.set(Variable(2), true);
         assert!(t.contains(&p));
 
-        t.set(2, true);
+        t.set(Variable(2), true);
         assert!(t.contains(&p));
 
-        t.set(3, true);
+        t.set(Variable(3), true);
         assert!(t.contains(&p));
 
-        t.set(5, true);
+        t.set(Variable(5), true);
         assert!(!t.contains(&p));
     }
 }
