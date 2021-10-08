@@ -45,6 +45,14 @@ impl Implicants {
         result
     }
 
+    pub fn parse_with_variables(descr: &str, variables: &[Variable]) -> Result<Self, BokitError> {
+        let mut result = Implicants::default();
+        for elt in descr.trim().split(&PATTERN_SEPARATORS[..]) {
+            result.push(Pattern::parse_with_variables(elt, variables)?);
+        }
+        Ok(result)
+    }
+
     pub fn iter(&self) -> Iter<'_, Pattern> {
         self.patterns.iter()
     }

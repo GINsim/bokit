@@ -113,6 +113,12 @@ impl Primes {
 }
 
 impl Primes {
+    pub fn parse_with_variables(descr: &str, variables: &[Variable]) -> Result<Self, BokitError> {
+        Ok(Primes::from(Implicants::parse_with_variables(
+            descr, variables,
+        )?))
+    }
+
     pub fn into_implicants(self) -> Implicants {
         self.patterns
     }

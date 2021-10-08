@@ -54,6 +54,30 @@ impl Pattern {
         neg.difference_with(&pos);
         Pattern::with(pos, neg)
     }
+
+    /// Parse a pattern using the specified variables
+    ///
+    /// Instead of using naturally ordered variables as in the default parser, we use
+    pub fn parse_with_variables(descr: &str, variables: &[Variable]) -> Result<Self, BokitError> {
+        let mut p = Pattern::default();
+        let mut vars = variables.iter();
+        for c in descr.chars() {
+            match c {
+                ' ' | '\t' | '\'' => (), // skip spacing and ` for formatting
+                '-' => {
+                    vars.next();
+                }
+                '0' => p
+                    .negative
+                    .insert(*vars.next().ok_or(BokitError::InvalidExpression)?),
+                '1' => p
+                    .positive
+                    .insert(*vars.next().ok_or(BokitError::InvalidExpression)?),
+                _ => return Err(BokitError::InvalidExpression),
+            };
+        }
+        Ok(p)
+    }
 }
 
 #[cfg_attr(feature = "pyo3", pymethods)]
