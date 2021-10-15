@@ -191,7 +191,7 @@ pub use primes::Primes;
 pub use rules::{Rule, SomeRule};
 pub use space::{Component, VarSpace};
 pub use states::State;
-pub use variable::{VarSet, Variable};
+pub use variable::{VarList, VarSet, Variable};
 
 #[cfg(feature = "pyo3")]
 use pyo3::{prelude::*, types::PyModule, PyResult, Python};
@@ -203,6 +203,7 @@ fn bokit(_py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<Variable>()?;
     m.add_class::<VarSet>()?;
+    m.add_class::<VarList>()?;
     m.add_class::<VarSpace>()?;
 
     m.add_class::<State>()?;

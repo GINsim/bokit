@@ -186,6 +186,12 @@ fn extract_expr(obj: &PyAny) -> PyResult<Expr> {
     if let Ok(e) = obj.extract::<'_, Pattern>() {
         return Ok(Expr::from(e));
     }
+    if let Ok(e) = obj.extract::<'_, Implicants>() {
+        return Ok(Expr::from(&e));
+    }
+    if let Ok(e) = obj.extract::<'_, Primes>() {
+        return Ok(Expr::from(&e));
+    }
     if let Ok(e) = obj.extract::<'_, bool>() {
         return Ok(Expr::from(e));
     }

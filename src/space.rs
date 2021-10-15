@@ -12,8 +12,6 @@ use pyo3::{exceptions::PyValueError, prelude::*, PyMappingProtocol};
 static RE_UID: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^(_[01-9_]*)?[a-zA-Z][a-zA-Z01-9_]*$").unwrap());
 
-static _NAME_SEPARATORS: [char; 3] = [' ', ',', ';'];
-
 /// Associate (group of) variables with their name in a collection.
 ///
 /// Unlike variables, the component is tight to a collection of variables.
@@ -212,35 +210,32 @@ impl VarSpace {
     pub fn parse_expression_with_new_variables(&mut self, text: &str) -> Result<Expr, BokitError> {
         parse::parse_expression(&mut |name| self.add(name), text)
     }
+
     /// Parse an expression using variable names
     pub fn parse_expression(&self, text: &str) -> Result<Expr, BokitError> {
         parse::parse_expression(&mut |name| self.get_variable(name), text)
     }
 
-    pub fn parse_variables(&self, text: &str) -> Result<Vec<Variable>, BokitError> {
-        Self::_parse_variables(text, |n| self.get_variable(n))
+    pub fn parse_variables(&self, text: &str) -> Result<VarList, BokitError> {
+        VarList::parse(text, |n| self.get_variable(n))
     }
 
-    pub fn parse_new_variables(&mut self, text: &str) -> Result<Vec<Variable>, BokitError> {
-        Self::_parse_variables(text, |n| self.add(n))
+    pub fn parse_new_variables(&mut self, text: &str) -> Result<VarList, BokitError> {
+        VarList::parse(text, |n| self.add(n))
     }
 
     /// Parse a list of implicants using named variables.
     ///
     /// The string should start with a header line defining the order of variables
     pub fn parse_implicants(&self, text: &str) -> Result<Implicants, BokitError> {
-        let sep = text.find('\n').ok_or(BokitError::InvalidExpression)?;
-        let variables = self.parse_variables(&text[..sep])?;
-        Implicants::parse_with_variables(&text[sep..], &variables)
+        Implicants::parse_with_header(text, |n| self.get_variable(n))
     }
 
     pub fn parse_implicants_with_new_variables(
         &mut self,
         text: &str,
     ) -> Result<Implicants, BokitError> {
-        let sep = text.find('\n').ok_or(BokitError::InvalidExpression)?;
-        let variables = self.parse_new_variables(&text[..sep])?;
-        Implicants::parse_with_variables(&text[sep..], &variables)
+        Implicants::parse_with_header(text, |n| self.add(n))
     }
 
     /// Get the number of assigned Variables
@@ -354,45 +349,6 @@ impl VarSpace {
     /// Check if all variables names are part of this collection
     pub fn contains_all_names<'a, T: IntoIterator<Item = &'a str>>(&self, col: T) -> bool {
         !col.into_iter().any(|v| !self.contains_name(v))
-    }
-
-    /// Create a set of variables of this collection based on their list of names
-    ///
-    /// Returns an error if one of the names is not part of the collection, in particular if it in invalid
-    pub fn parse_variable_set(
-        &self,
-        descr: &str,
-        sep: Option<&[char]>,
-    ) -> Result<VarSet, BokitError> {
-        let separators = sep.unwrap_or(&_NAME_SEPARATORS);
-        let mut vs = VarSet::default();
-        for name in descr.split(separators) {
-            vs.insert(self.get_variable(name)?);
-        }
-        Ok(vs)
-    }
-
-    fn _parse_variables<F: FnMut(&str) -> Result<Variable, BokitError>>(
-        text: &str,
-        mut f: F,
-    ) -> Result<Vec<Variable>, BokitError> {
-        let mut vars = VarSet::new();
-        let mut result = Vec::new();
-        for rv in text
-            .split(&_NAME_SEPARATORS[..])
-            .filter(|n| !n.is_empty())
-            .map(|name| f(name))
-        {
-            let v = rv?;
-            // Each variable must appear at most once
-            if vars.contains(v) {
-                return Err(BokitError::InvalidExpression);
-            }
-            vars.insert(v);
-            result.push(v);
-        }
-
-        Ok(result)
     }
 
     /// Apply variable names from this collection to a rule.

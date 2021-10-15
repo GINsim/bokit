@@ -33,6 +33,7 @@ impl Implicants {
     pub fn new() -> Self {
         Self::default()
     }
+
     /// Import a list of patterns as a list of implicants.
     /// If it contains at least two patterns, it will be tainted for potential subsumed patterns.
     fn with(patterns: Vec<Pattern>) -> Self {
@@ -45,12 +46,24 @@ impl Implicants {
         result
     }
 
-    pub fn parse_with_variables(descr: &str, variables: &[Variable]) -> Result<Self, BokitError> {
-        let mut result = Implicants::default();
-        for elt in descr.trim().split(&PATTERN_SEPARATORS[..]) {
-            result.push(Pattern::parse_with_variables(elt, variables)?);
-        }
-        Ok(result)
+    /// Parse a list of implicants with a header line defining a custom variable order
+    ///
+    /// This method uses a closure to map variable names to actual variables, then
+    /// delegates the actual parsing to [Self::parse_with_variables].
+    pub fn parse_with_header<F: FnMut(&str) -> Result<Variable, BokitError>>(
+        descr: &str,
+        f: F,
+    ) -> Result<Self, BokitError> {
+        let sep = descr.find('\n').ok_or(BokitError::InvalidExpression)?;
+        let variables = VarList::parse(&descr[..sep], f)?;
+        Self::parse_with_variables(&descr[sep..], &variables)
+    }
+
+    /// Parse a list of implicants using a custom variable order
+    pub fn parse_with_variables(descr: &str, variables: &VarList) -> Result<Self, BokitError> {
+        split_patterns(descr)
+            .map(|p| Pattern::parse_with_variables(p, variables))
+            .collect()
     }
 
     pub fn iter(&self) -> Iter<'_, Pattern> {
@@ -401,15 +414,16 @@ impl IntoIterator for Implicants {
     }
 }
 
+fn split_patterns(s: &str) -> impl Iterator<Item = &str> {
+    s.split(&PATTERN_SEPARATORS[..])
+        .filter(|p| !p.trim().is_empty())
+}
+
 impl FromStr for Implicants {
     type Err = BokitError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut result = Implicants::default();
-        for elt in s.trim().split(&PATTERN_SEPARATORS[..]) {
-            result.push(elt.parse()?);
-        }
-        Ok(result)
+        split_patterns(s).map(|p| p.parse()).collect()
     }
 }
 

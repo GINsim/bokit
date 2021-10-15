@@ -15,6 +15,8 @@ use pyo3::{prelude::*, PyObjectProtocol};
 
 static RE_GENERIC_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*_?([01-9]+)_?\s*$").unwrap());
 
+static _NAME_SEPARATORS: [char; 3] = [' ', ',', ';'];
+
 /// A single Boolean variable with an integer UID.
 ///
 /// A variable or its raw UID can be used to set or retrieve the value of the variable in a [State] or [Pattern],
@@ -133,6 +135,42 @@ impl FromStr for Variable {
 #[derive(Clone, PartialEq, Eq, Default, Debug)]
 pub struct VarSet {
     pub variables: BitSet,
+}
+
+/// An ordered list of variables, without duplicates
+#[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
+#[derive(Clone, PartialEq, Eq, Default, Debug)]
+pub struct VarList {
+    varset: VarSet,
+    varlist: Vec<Variable>,
+}
+
+impl VarList {
+    pub fn iter(&self) -> impl Iterator<Item = &Variable> {
+        self.varlist.iter()
+    }
+
+    pub fn push(&mut self, var: Variable) -> Result<(), BokitError> {
+        if self.varset.contains(var) {
+            // TODO: error duplicate variable
+            return Err(BokitError::InvalidExpression);
+        }
+
+        self.varset.insert(var);
+        self.varlist.push(var);
+        Ok(())
+    }
+
+    pub fn parse<F: FnMut(&str) -> Result<Variable, BokitError>>(
+        text: &str,
+        mut f: F,
+    ) -> Result<Self, BokitError> {
+        let mut result = VarList::default();
+        for name in text.split(&_NAME_SEPARATORS[..]).filter(|n| !n.is_empty()) {
+            result.push(f(name)?)?;
+        }
+        Ok(result)
+    }
 }
 
 // These functions can not be directly mapped to Python methods

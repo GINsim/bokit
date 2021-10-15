@@ -58,7 +58,7 @@ impl Pattern {
     /// Parse a pattern using the specified variables
     ///
     /// Instead of using naturally ordered variables as in the default parser, we use
-    pub fn parse_with_variables(descr: &str, variables: &[Variable]) -> Result<Self, BokitError> {
+    pub fn parse_with_variables(descr: &str, variables: &VarList) -> Result<Self, BokitError> {
         let mut p = Pattern::default();
         let mut vars = variables.iter();
         for c in descr.chars() {
