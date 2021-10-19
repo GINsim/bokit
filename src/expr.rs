@@ -3,6 +3,7 @@
 use core::ops::BitAnd;
 use core::ops::BitOr;
 use core::ops::Not;
+use std::borrow::Cow;
 use std::fmt;
 
 use crate::*;
@@ -156,11 +157,59 @@ impl Expr {
             }
         }
     }
+
+    /// Rewrite an expression by replacing some variables with new expressions.
+    ///
+    /// The function will call the closure on all variables in the expression.
+    /// The closure takes two arguments: the variable itself and a flag indicating
+    /// if the expression is currently negated.
+    /// If the closure returns None, then the variable is unchanged, otherwise it a new expression
+    /// is used to reconstruct the expression tree.
+    ///
+    /// If the expression is unchanged, only the root node will be duplicated, the necessary subtrees
+    /// are reconstructed and the original expression remains unchanged.
+    ///
+    /// This function is used to implement the restriction of an expression into a subspace,
+    /// but can be used for other rewriting operations. In most cases it should not be used directly.
+    pub fn rewrite_cow<F>(&self, f: &F) -> Self
+    where
+        F: Fn(Variable, bool) -> Option<Expr>,
+    {
+        self._rewrite_cow(f, false).into_owned()
+    }
+
+    fn _rewrite_cow<F>(&self, f: &F, negated: bool) -> Cow<Self>
+    where
+        F: Fn(Variable, bool) -> Option<Expr>,
+    {
+        match &self.0 {
+            ExprNode::Bool(_) => Cow::Borrowed(self),
+            ExprNode::Atom(v) => match f(*v, negated) {
+                None => Cow::Borrowed(self),
+                Some(e) => Cow::Owned(e),
+            },
+            ExprNode::Not(e) => match e._rewrite_cow(f, !negated) {
+                Cow::Borrowed(_) => Cow::Borrowed(self),
+                Cow::Owned(e) => Cow::Owned(!e),
+            },
+            ExprNode::Operation(op, children) => {
+                let c1 = children.0._rewrite_cow(f, negated);
+                let c2 = children.1._rewrite_cow(f, negated);
+                if let (Cow::Borrowed(_), Cow::Borrowed(_)) = (&c1, &c2) {
+                    return Cow::Borrowed(self);
+                }
+                Cow::Owned(match op {
+                    Operator::And => c1.into_owned() & c2.into_owned(),
+                    Operator::Or => c1.into_owned() | c2.into_owned(),
+                })
+            }
+        }
+    }
 }
 
-#[cfg(feature = "pyo3")]
-#[pymethods]
+#[cfg_attr(feature = "pyo3", pymethods)]
 impl Expr {
+    #[cfg(feature = "pyo3")]
     #[new]
     fn new_py(arg: Option<&PyAny>) -> PyResult<Self> {
         match arg {
@@ -169,9 +218,28 @@ impl Expr {
         }
     }
 
+    #[cfg(feature = "pyo3")]
     #[pyo3(name = "eval")]
     fn eval_py(&self, state: &State) -> bool {
         self.eval(state)
+    }
+
+    /// Restrict the function in a subspace: replace the fixed variables by their value
+    ///
+    /// Free variables are unaffected, fixed variables are replaced by their value.
+    /// For consistency with the [restriction of lists of implicants](Implicants::restrict_to_subspace),
+    /// conflicting variables are replaced with the negated flag obtained from their parent tree.
+    /// The resulting function is true if it can be true for any value of the conflicting variables.
+    pub fn restrict_to_subspace(&self, subspace: &Pattern) -> Self {
+        self.rewrite_cow(&|v, b| match (
+            subspace.positive.contains(v),
+            subspace.negative.contains(v),
+        ) {
+            (false, false) => None,
+            (true, false) => Some(Expr::from(true)),
+            (false, true) => Some(Expr::from(false)),
+            (true, true) => Some(Expr::from(b)),
+        })
     }
 }
 
@@ -484,6 +552,44 @@ mod tests {
         assert_eq!(true, e.eval(&variables.get_state("test")?));
         assert_eq!(false, e.eval(&variables.get_state("myvar test")?));
         assert_eq!(true, e.eval(&variables.get_state("myvar test first")?));
+
+        Ok(())
+    }
+
+    #[test]
+    fn restrict_subspace() -> Result<(), BokitError> {
+        let mut vs = VarSpace::default();
+        let e1 = vs.parse_expression_with_new_variables("A | !(B & C) | D")?;
+        let e2 = vs.parse_expression_with_new_variables("A | (B & C)")?;
+
+        let var_b = vs.get_variable("B")?;
+        let var_d = vs.get_variable("D")?;
+
+        let mut sub = Pattern::default();
+        sub.set(var_d, false);
+        assert_eq!(
+            e1.restrict_to_subspace(&sub),
+            vs.parse_expression("A | !(B & C)")?
+        );
+        assert_eq!(e2.restrict_to_subspace(&sub), e2.clone());
+
+        sub.set(var_b, true);
+        assert_eq!(
+            e1.restrict_to_subspace(&sub),
+            vs.parse_expression("A | !C")?
+        );
+        assert_eq!(e2.restrict_to_subspace(&sub), vs.parse_expression("A | C")?);
+
+        sub.set(var_b, false);
+        assert_eq!(e1.restrict_to_subspace(&sub), Expr::from(true));
+        assert_eq!(e2.restrict_to_subspace(&sub), vs.parse_expression("A")?);
+
+        sub.set_ignoring_conflicts(var_b, true);
+        assert_eq!(
+            e1.restrict_to_subspace(&sub),
+            vs.parse_expression("A | !C")?
+        );
+        assert_eq!(e2.restrict_to_subspace(&sub), vs.parse_expression("A")?);
 
         Ok(())
     }

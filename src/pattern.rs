@@ -78,6 +78,11 @@ impl Pattern {
         }
         Ok(p)
     }
+
+    pub(crate) fn restrict_ignore_conflicts(&mut self, subspace: &Pattern) {
+        self.positive.difference_with(&subspace.positive);
+        self.negative.difference_with(&subspace.negative);
+    }
 }
 
 #[cfg_attr(feature = "pyo3", pymethods)]
@@ -125,6 +130,23 @@ impl Pattern {
     pub fn free_variable(&mut self, var: Variable) {
         self.positive.remove(var);
         self.negative.remove(var);
+    }
+
+    /// Check if this pattern has some inner conflict
+    pub fn has_conflict(&self) -> bool {
+        !self.positive.is_disjoint(&self.negative)
+    }
+
+    /// Restrict this pattern to its intersection with the given subspace.
+    ///
+    /// Returns false if the pattern has some conflict with the subspace (it remains unchanged)
+    /// Returns true and eliminates unnecessary variables otherwise
+    pub fn restrict(&mut self, subspace: &Pattern) -> bool {
+        if !self.overlaps(subspace) {
+            return false;
+        }
+        self.restrict_ignore_conflicts(subspace);
+        true
     }
 
     /// Fix a variable to a specific value, even if it is already fixed at another.

@@ -104,8 +104,10 @@ impl Implicants {
     /// The subsumed flag can be cleared if the list if reduced to less than 2 implicants.
     pub fn quick_retain<F: Fn(&Pattern) -> bool>(&mut self, f: F) {
         let pivot = self.quick_partition(f);
-        self.patterns.truncate(pivot);
-        self.subsumed_flag &= self.len() > 1;
+        if pivot < self.len() {
+            self.patterns.truncate(pivot);
+            self.subsumed_flag &= self.len() > 1;
+        }
     }
 
     /// Split the list according to a condition.
@@ -209,6 +211,30 @@ impl Implicants {
     /// When this flag is false, the list should not contain any pair of pattern subsuming each other.
     pub fn subsumed_flag(&self) -> bool {
         self.subsumed_flag
+    }
+
+    /// Restrict this list of implicants to a given subspace.
+    ///
+    /// If the subspace does not fix any regulator of this list of implicant, then nothing changes.
+    /// Otherwise, the patterns conflicting with the subspace are removed, and the remaining patterns
+    /// are simplified to eliminate unnecessary fixed variables.
+    ///
+    /// In absence of conflicting variable in the subspace, we obtain the non-empty intersections of patterns with
+    /// the subspace. A conflicting variable in the subspace is considered as a conflict if it fixed at any value
+    /// in an implicant, but the implicants where it does not appear remain valid.
+    /// The resulting function evaluates to true if it is satisfied without the conflicting variables.
+    pub fn restrict_to_subspace(&mut self, fixed: &Pattern) {
+        let regulators = self.get_regulators();
+        if regulators.is_disjoint(&fixed.positive) && regulators.is_disjoint(&fixed.negative) {
+            return;
+        }
+
+        self.quick_retain(|p| p.overlaps(fixed));
+        self.patterns
+            .iter_mut()
+            .for_each(|p| p.restrict_ignore_conflicts(fixed));
+        // TODO: the subsumed flag is cleared to be safe, can we preserve it?
+        self.subsumed_flag &= self.len() > 1;
     }
 
     /// Remove all patterns.
@@ -492,5 +518,30 @@ mod tests {
 
         let implicants: Implicants = "0-10;0-11;1-11".parse().unwrap();
         assert_eq!(implicants.len(), 3);
+    }
+
+    #[test]
+    fn restrict_subspace() -> Result<(), BokitError> {
+        let ipl: Implicants = "0-- ; --1 ; 10-".parse()?;
+
+        let mut sub = Pattern::default();
+        sub.set(Variable(1), false);
+
+        let mut r = ipl.clone();
+        r.restrict_to_subspace(&sub);
+        assert_eq!(r.len(), 3);
+        assert_eq!(&r[0], &ipl[0]);
+        assert_eq!(&r[1], &ipl[1]);
+        let p = "1--".parse::<Pattern>()?;
+        assert_eq!(&r[2], &p);
+
+        sub.set(Variable(2), false);
+        r = ipl.clone();
+        r.restrict_to_subspace(&sub);
+        assert_eq!(r.len(), 2);
+        assert_eq!(&r[0], &ipl[0]);
+        assert_eq!(&r[1], &p);
+
+        Ok(())
     }
 }
