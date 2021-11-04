@@ -55,7 +55,7 @@ dependencies = [
 
 [[package]]
 name = "bokit"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "bit-set",
  "once_cell",
