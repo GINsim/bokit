@@ -26,6 +26,21 @@ pub enum BokitError {
     /// The expression is invalid
     #[error("Not a valid expression")]
     InvalidExpression,
+
+    /// Parsing error
+    #[error("Parse error: {0}")]
+    ParseError(ParseError),
+}
+
+#[derive(Error, Debug)]
+pub enum ParseError {
+    /// Simple mismatch
+    #[error("The string '{0}' could not be parsed as '{1}'")]
+    SimpleParseError(String, &'static str),
+
+    /// Parse error without a description
+    #[error("Undefined parse error")]
+    JustError,
 }
 
 #[cfg(feature = "pyo3")]
@@ -33,5 +48,11 @@ impl From<BokitError> for PyErr {
     fn from(e: BokitError) -> Self {
         // TODO: better conversion to Python errors
         PyValueError::new_err(format!("{}", e))
+    }
+}
+
+impl From<ParseError> for BokitError {
+    fn from(e: ParseError) -> Self {
+        Self::ParseError(e)
     }
 }

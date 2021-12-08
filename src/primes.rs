@@ -148,34 +148,73 @@ impl Primes {
         result
     }
 
-    fn _expand_expr(&mut self, expr: &Expr, positive: bool) {
-        match &expr.0 {
-            ExprNode::Atom(var) => self.restrict(*var, positive),
-            ExprNode::Not(e) => self._expand_expr(e, !positive),
-            ExprNode::Bool(b) => {
-                if *b != positive {
+    fn _expand_expr(&mut self, expr: &Expr, value: bool) {
+        match &expr.node {
+            ExprNode::Variable(var) => self.restrict(*var, expr.value == value),
+            ExprNode::True => {
+                if expr.value != value {
                     self.patterns.clear();
                 }
             }
-            ExprNode::Operation(op, children) => match (positive, op) {
-                (true, Operator::And) => self._expand_and(children, positive),
-                (false, Operator::Or) => self._expand_and(children, positive),
-                (true, Operator::Or) => self._expand_or(children, positive),
-                (false, Operator::And) => self._expand_or(children, positive),
+            ExprNode::Pattern(p) => match expr.value == value {
+                true => self._expand_and_pattern(p),
+                false => self._expand_or_pattern(p),
+            },
+            ExprNode::Operation(op, children) => match (expr.value == value, op) {
+                (true, Operator::And) => self._expand_and(children, true),
+                (false, Operator::Or) => self._expand_and(children, false),
+                (true, Operator::Or) => self._expand_or(children, true),
+                (false, Operator::And) => self._expand_or(children, false),
             },
         }
     }
 
-    fn _expand_and(&mut self, children: &(Expr, Expr), positive: bool) {
-        self._expand_expr(&children.0, positive);
-        self._expand_expr(&children.1, positive);
+    fn _expand_and(&mut self, children: &(Expr, Expr), value: bool) {
+        self._expand_expr(&children.0, value);
+        self._expand_expr(&children.1, value);
     }
 
-    fn _expand_or(&mut self, children: &(Expr, Expr), positive: bool) {
+    fn _expand_or(&mut self, children: &(Expr, Expr), value: bool) {
         let mut other = self.clone();
-        self._expand_expr(&children.0, positive);
-        other._expand_expr(&children.1, positive);
+        self._expand_expr(&children.0, value);
+        other._expand_expr(&children.1, value);
         self.merge(&mut other);
+    }
+
+    fn _expand_and_pattern(&mut self, pattern: &Pattern) {
+        // TODO: apply all restrictions at once (and loose some optimizations in corner cases)
+        pattern
+            .positive
+            .iter()
+            .for_each(|var| self.restrict(var, true));
+        pattern
+            .negative
+            .iter()
+            .for_each(|var| self.restrict(var, false));
+    }
+
+    fn _expand_or_merge(&mut self, original: &mut Option<Self>, var: Variable, value: bool) {
+        match original {
+            None => {
+                *original = Some(self.clone());
+                self.restrict(var, value);
+            }
+            Some(ori) => {
+                let mut p = ori.clone();
+                p.restrict(var, value);
+                self.merge(&mut p);
+            }
+        }
+    }
+
+    fn _expand_or_pattern(&mut self, p: &Pattern) {
+        let mut original = None;
+        p.positive
+            .iter()
+            .for_each(|var| self._expand_or_merge(&mut original, var, false));
+        p.negative
+            .iter()
+            .for_each(|var| self._expand_or_merge(&mut original, var, true));
     }
 }
 

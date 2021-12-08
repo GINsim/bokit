@@ -18,10 +18,10 @@
 //! # fn main() -> Result<(), BokitError> {
 //!
 //! // Create some variables
-//! let a = Variable::from(0);
-//! let b = Variable::from(1);
-//! let c = Variable::from(2);
-//! let d = Variable::from(3);
+//! let a = Variable::new(0);
+//! let b = Variable::new(1);
+//! let c = Variable::new(2);
+//! let d = Variable::new(3);
 //!
 //! // Create states and patterns with these variables
 //! let state1 = State::from_iter([b,c]);
@@ -64,7 +64,7 @@
 //!
 //! # Lists of implicants
 //!
-//! An implicants of a rule is a pattern such that the rule is true for all states of the pattern. A rule can then be defined
+//! An implicant of a rule is a pattern such that the rule is true for all states of the pattern. A rule can then be defined
 //! by a [list of implicants](Implicants) covering all states for which the rule is true. Note that this definition
 //! corresponds to the *truth table* of the rule if all implicants are single states.
 //!
@@ -184,7 +184,7 @@ extern crate pest_derive;
 
 // Export public structures and API
 pub use error::BokitError;
-pub use expr::{Expr, ExprNode, Operator};
+pub use expr::{Expr, Operator};
 pub use implicants::Implicants;
 pub use pattern::Pattern;
 pub use primes::Primes;

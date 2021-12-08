@@ -10,8 +10,10 @@ use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
 
+use crate::error::ParseError;
 #[cfg(feature = "pyo3")]
 use pyo3::{prelude::*, PyObjectProtocol};
+use std::ops::Not;
 
 static RE_GENERIC_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*_?([01-9]+)_?\s*$").unwrap());
 
@@ -41,7 +43,7 @@ impl Variable {
     #[cfg(feature = "pyo3")]
     #[new]
     pub fn new_py(uid: usize) -> Self {
-        Self(uid)
+        Self::new(uid)
     }
 
     /// Return the internal integer UID
@@ -49,6 +51,7 @@ impl Variable {
         self.0
     }
 
+    /// Evaluate the rule on the given state
     #[cfg(feature = "pyo3")]
     #[pyo3(name = "eval")]
     pub fn eval_py(&self, state: &State) -> bool {
@@ -101,7 +104,17 @@ impl FromStr for Variable {
             let uid: usize = cap.get(1).unwrap().as_str().parse().unwrap();
             return Ok(Variable::from(uid));
         }
-        Err(BokitError::InvalidExpression)
+        Err(BokitError::from(ParseError::SimpleParseError(
+            name.to_string(),
+            "Variable",
+        )))
+    }
+}
+
+impl Not for Variable {
+    type Output = Expr;
+    fn not(self) -> Self::Output {
+        Expr::from(self).not()
     }
 }
 
@@ -133,9 +146,7 @@ impl FromStr for Variable {
 /// ```
 #[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 #[derive(Clone, PartialEq, Eq, Default, Debug)]
-pub struct VarSet {
-    pub variables: BitSet,
-}
+pub struct VarSet(BitSet);
 
 /// An ordered list of variables, without duplicates
 #[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
@@ -175,6 +186,7 @@ impl VarList {
 
 // These functions can not be directly mapped to Python methods
 impl VarSet {
+    /// Create an empty set of variables (same as default)
     pub fn new() -> Self {
         Self::default()
     }
@@ -194,95 +206,85 @@ impl VarSet {
         Self::new()
     }
 
-    /// Activate the given variable in this state
-    pub fn insert(&mut self, var: Variable) {
-        self.variables.insert(var.uid());
+    /// Get the number of variables in this set
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
 
-    /// Disable the given variable in this state
-    pub fn remove(&mut self, var: Variable) {
-        self.variables.remove(var.uid());
+    /// Check if this set is empty (i.e. contains no variable)
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
     }
 
-    /// Test if a specific variable is active in this state
+    /// Test if a specific variable is included in this set
     pub fn contains(&self, var: Variable) -> bool {
-        self.variables.contains(var.uid())
-    }
-
-    /// Remove all variables from the other set
-    pub fn difference_with(&mut self, vars: &Self) {
-        self.variables.difference_with(&vars.variables);
-    }
-
-    /// Retain only the variables also included in the other set
-    pub fn intersect_with(&mut self, vars: &Self) {
-        self.variables.intersect_with(&vars.variables);
-    }
-
-    /// Add all variables from the other set
-    pub fn union_with(&mut self, vars: &Self) {
-        self.variables.union_with(&vars.variables);
+        self.0.contains(var.uid())
     }
 
     /// Return true if this set contains all variables of the other set
-    pub fn contains_all(&self, other: &Self) -> bool {
-        self.variables.is_superset(&other.variables)
+    pub fn contains_set(&self, other: &Self) -> bool {
+        self.0.is_superset(&other.0)
     }
 
     /// Return true if the two sets have no common variable
     pub fn is_disjoint(&self, other: &Self) -> bool {
-        self.variables.is_disjoint(&other.variables)
+        self.0.is_disjoint(&other.0)
     }
 
-    /// Return the number of variables in this set
-    pub fn len(&self) -> usize {
-        self.variables.len()
+    /// Include the given variable in this set
+    pub fn insert(&mut self, var: Variable) {
+        self.0.insert(var.uid());
     }
 
-    /// Return whether there are no selected variable in this set
-    pub fn is_empty(&self) -> bool {
-        self.variables.is_empty()
+    /// Add all variables from the other set
+    pub fn insert_set(&mut self, vars: &Self) {
+        self.0.union_with(&vars.0);
+    }
+
+    /// Remove the given variable from this state
+    pub fn remove(&mut self, var: Variable) {
+        self.0.remove(var.uid());
+    }
+
+    /// Remove all variables from the other set
+    pub fn remove_set(&mut self, vars: &Self) {
+        self.0.difference_with(&vars.0);
+    }
+
+    /// Retain only the variables included in the other set
+    pub fn retain_set(&mut self, vars: &Self) {
+        self.0.intersect_with(&vars.0);
     }
 }
 
 impl From<BitSet> for VarSet {
     fn from(variables: BitSet) -> Self {
-        Self { variables }
-    }
-}
-
-impl From<&BitSet> for VarSet {
-    fn from(variables: &BitSet) -> Self {
-        Self {
-            variables: variables.clone(),
-        }
+        Self(variables)
     }
 }
 
 impl From<VarSet> for BitSet {
     fn from(vs: VarSet) -> Self {
-        vs.variables
+        vs.0
     }
 }
 
 impl AsRef<BitSet> for VarSet {
     fn as_ref(&self) -> &BitSet {
-        &self.variables
+        &self.0
     }
 }
 
 impl AsMut<BitSet> for VarSet {
     fn as_mut(&mut self) -> &mut BitSet {
-        &mut self.variables
+        &mut self.0
     }
 }
 
 impl FromIterator<Variable> for VarSet {
     fn from_iter<I: IntoIterator<Item = Variable>>(iter: I) -> Self {
         let mut vs = VarSet::default();
-        for v in iter {
-            vs.insert(v);
-        }
+        vs.extend(iter);
         vs
     }
 }
@@ -297,16 +299,16 @@ impl Extend<Variable> for VarSet {
 
 impl fmt::Display for VarSet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut pos = 0;
+        let mut first = false;
+        write!(f, "{{")?;
         for v in self {
-            while pos < v.uid() {
-                write!(f, "0")?;
-                pos += 1;
+            match first {
+                true => first = false,
+                false => write!(f, ", ")?,
             }
-            write!(f, "1")?;
-            pos += 1;
+            write!(f, "{}", v.uid())?;
         }
-        write!(f, "")
+        write!(f, "}}")
     }
 }
 
@@ -322,9 +324,9 @@ impl PyObjectProtocol<'_> for VarSet {
 }
 
 impl FromStr for VarSet {
-    type Err = BokitError;
+    type Err = ParseError;
 
-    fn from_str(descr: &str) -> Result<Self, BokitError> {
+    fn from_str(descr: &str) -> Result<Self, Self::Err> {
         let mut s = Self::default();
         let mut idx = 0;
         for c in descr.chars() {
@@ -335,7 +337,7 @@ impl FromStr for VarSet {
                     s.insert(Variable(idx));
                     idx += 1;
                 }
-                _ => return Err(BokitError::InvalidExpression),
+                _ => return Err(ParseError::SimpleParseError(descr.to_string(), "VarSet")),
             };
         }
         Ok(s)
@@ -357,7 +359,7 @@ impl<'a> IntoIterator for &'a VarSet {
     type IntoIter = Iter<'a>;
 
     fn into_iter(self) -> Self::IntoIter {
-        Iter(self.variables.iter())
+        Iter(self.0.iter())
     }
 }
 
@@ -402,7 +404,7 @@ mod tests {
         let v5 = variables.add("E")?;
 
         let state = variables.get_state("A D E; B, D")?;
-        assert_eq!(state.active.len(), 4);
+        assert_eq!(state.len_active(), 4);
         assert_eq!(state.is_active(v1), true);
         assert_eq!(state.is_active(v2), true);
         assert_eq!(state.is_active(v3), false);
@@ -415,9 +417,9 @@ mod tests {
         varset.add("third")?;
 
         let state = varset.get_state("test third")?;
-        assert_eq!(2, state.active.len());
-        assert_eq!(true, state.active.contains(Variable(0)));
-        assert_eq!(true, state.active.contains(Variable(2)));
+        assert_eq!(2, state.len_active());
+        assert_eq!(true, state.is_active(Variable(0)));
+        assert_eq!(true, state.is_active(Variable(2)));
 
         Ok(())
     }
@@ -511,10 +513,22 @@ mod tests {
         assert_eq!(uids.check_rule(&expr).is_ok(), true);
 
         let v5 = Variable::from(5);
-        let expr = v0 | v1 | (v5 & !v5);
-        assert_eq!(uids.check_rule(&expr).is_ok(), false);
 
+        let expr = v0 | v1 | v5;
         let primes = Primes::from(&expr);
+        assert_eq!(uids.check_rule(&expr).is_ok(), false);
+        assert_eq!(uids.check_rule(&primes).is_ok(), false);
+
+        // Some unnecessary variables are eliminated from the expression
+        let expr = v0 | v1 | (v5 & !v5);
+        let primes = Primes::from(&expr);
+        assert_eq!(uids.check_rule(&expr).is_ok(), true);
+        assert_eq!(uids.check_rule(&primes).is_ok(), true);
+
+        // Some unnecessary variables are only eliminated in the prime implicants
+        let expr = v0 | (v1 & v5) | (v1 & !v5);
+        let primes = Primes::from(&expr);
+        assert_eq!(uids.check_rule(&expr).is_ok(), false);
         assert_eq!(uids.check_rule(&primes).is_ok(), true);
     }
 }

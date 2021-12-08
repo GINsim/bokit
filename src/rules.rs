@@ -26,12 +26,14 @@ pub trait Rule {
 /// A rule defined in one of the available data structure.
 #[derive(Clone, Debug)]
 pub enum SomeRule {
-    /// Defined as an expression
-    Expr(Expr),
-    /// Defined as a list of prime implicants
-    Primes(Primes),
-    /// Defined as a list of implicants, which may not be prime
+    /// List of implicants representing a DNF
     Implicants(Implicants),
+
+    /// List of implicants guaranteed to be prime, also representing a DNF
+    Primes(Primes),
+
+    /// Expression tree in free form
+    Expr(Expr),
 }
 
 impl SomeRule {

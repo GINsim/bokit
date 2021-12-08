@@ -3,13 +3,12 @@
 use core::ops::BitAnd;
 use core::ops::BitOr;
 use core::ops::Not;
-use std::borrow::Cow;
+use std::borrow::{Borrow, Cow};
 use std::fmt;
-
-use crate::*;
-use once_cell::sync::Lazy;
 use std::fmt::Debug;
 use std::str::FromStr;
+
+use crate::*;
 
 #[cfg(feature = "pyo3")]
 use pyo3::{exceptions::PyValueError, PyNumberProtocol, PyObjectProtocol};
@@ -63,17 +62,23 @@ use pyo3::{exceptions::PyValueError, PyNumberProtocol, PyObjectProtocol};
 /// ```
 #[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 #[derive(Clone, PartialEq, Debug)]
-pub struct Expr(pub(crate) ExprNode);
+pub struct Expr {
+    pub(crate) value: bool,
+    pub(crate) node: ExprNode,
+}
 
 /// A node in an expression tree
 #[derive(Clone, PartialEq, Debug)]
-pub enum ExprNode {
-    /// A simple Boolean (true/false) expression
-    Bool(bool),
-    /// A variable literal
-    Atom(Variable),
-    /// A negated expression
-    Not(Arc<Expr>),
+pub(crate) enum ExprNode {
+    /// A fixed Boolean value
+    True,
+
+    /// A single literal
+    Variable(Variable),
+
+    /// A pattern
+    Pattern(Pattern),
+
     /// Two expressions connected with a binary operator
     Operation(Operator, Arc<(Expr, Expr)>),
 }
@@ -88,20 +93,8 @@ pub enum Operator {
 }
 
 impl Expr {
-    fn into_join(self, e: Expr, o: Operator) -> Self {
-        match (&self.0, o, &e.0) {
-            (ExprNode::Bool(true), Operator::And, _) => e,
-            (ExprNode::Bool(false), Operator::And, _) => self,
-            (ExprNode::Bool(true), Operator::Or, _) => self,
-            (ExprNode::Bool(false), Operator::Or, _) => e,
-
-            (_, Operator::And, ExprNode::Bool(true)) => self,
-            (_, Operator::And, ExprNode::Bool(false)) => e,
-            (_, Operator::Or, ExprNode::Bool(true)) => e,
-            (_, Operator::Or, ExprNode::Bool(false)) => self,
-
-            _ => Expr(ExprNode::Operation(o, Arc::new((self, e)))),
-        }
+    fn new(value: bool, node: ExprNode) -> Self {
+        Self { value, node }
     }
 
     /// Clean formatting of expressions.
@@ -109,21 +102,48 @@ impl Expr {
     /// This recursive function carries two additional arguments:
     /// * the priority of the parent to decide when to add parenthesis,
     /// * a closure to format atoms, enabling to switch from generic names to search in a custom data structure.
-    fn _fmt_expr(&self, f: &mut fmt::Formatter, p: u8, namer: Option<&VarSpace>) -> fmt::Result {
-        match &self.0 {
-            ExprNode::Bool(true) => write!(f, "True"),
-            ExprNode::Bool(false) => write!(f, "False"),
-            ExprNode::Atom(v) => match namer {
-                Some(n) => n.format_variable(f, *v),
-                None => fmt::Display::fmt(v, f),
+    fn _fmt_expr<F>(&self, f: &mut fmt::Formatter, p: u8, namer: &F) -> fmt::Result
+    where
+        F: Fn(&mut fmt::Formatter<'_>, &Variable) -> fmt::Result,
+    {
+        match &self.node {
+            ExprNode::True => match self.value {
+                true => write!(f, "TRUE"),
+                false => write!(f, "FALSE"),
             },
-            ExprNode::Not(e) => {
-                write!(f, "!")?;
-                e._fmt_expr(f, u8::MAX, namer)
+            ExprNode::Variable(var) => {
+                if !self.value {
+                    write!(f, "!")?;
+                }
+                namer(f, var)
+            }
+            ExprNode::Pattern(p) => {
+                // Write all positive and negative variables.
+                if self.value {
+                    write!(f, "[")?;
+                } else {
+                    write!(f, "![")?;
+                }
+
+                let sep = " & ";
+                let mut first = true;
+                for (var, value) in p.iter_fixed_values() {
+                    match first {
+                        true => first = false,
+                        false => write!(f, "{}", sep)?,
+                    }
+                    if !value {
+                        write!(f, "!")?;
+                    }
+                    namer(f, &var)?;
+                }
+                write!(f, "]")
             }
             ExprNode::Operation(o, c) => {
                 let np = o.priority();
-                if np < p {
+                if !self.value {
+                    write!(f, "!(")?;
+                } else if np < p {
                     write!(f, "(")?;
                 }
 
@@ -131,29 +151,10 @@ impl Expr {
                 write!(f, " {} ", o)?;
                 c.1._fmt_expr(f, np, namer)?;
 
-                if np < p {
-                    write!(f, ")")
-                } else {
-                    write!(f, "")
+                if !self.value || np < p {
+                    write!(f, ")")?;
                 }
-            }
-        }
-    }
-
-    fn _eval(&self, state: &State, positive: bool) -> bool {
-        match &self.0 {
-            ExprNode::Bool(b) => *b == positive,
-            ExprNode::Not(e) => e._eval(state, !positive),
-            ExprNode::Atom(var) => positive == state.is_active(*var),
-            ExprNode::Operation(op, children) => {
-                let b1 = children.0._eval(state, positive);
-                let b2 = Lazy::new(|| children.1._eval(state, positive));
-                match (positive, op) {
-                    (true, Operator::And) => b1 && *b2,
-                    (true, Operator::Or) => b1 || *b2,
-                    (false, Operator::And) => b1 || *b2,
-                    (false, Operator::Or) => b1 && *b2,
-                }
+                Ok(())
             }
         }
     }
@@ -162,7 +163,7 @@ impl Expr {
     ///
     /// The function will call the closure on all variables in the expression.
     /// The closure takes two arguments: the variable itself and a flag indicating
-    /// if the expression is currently negated.
+    /// if the expression is positive or negative in the global context.
     /// If the closure returns None, then the variable is unchanged, otherwise it a new expression
     /// is used to reconstruct the expression tree.
     ///
@@ -171,37 +172,39 @@ impl Expr {
     ///
     /// This function is used to implement the restriction of an expression into a subspace,
     /// but can be used for other rewriting operations. In most cases it should not be used directly.
-    pub fn rewrite_cow<F>(&self, f: &F) -> Self
+    pub(crate) fn rewrite_cow<FV, FP>(&self, fv: &FV, fp: &FP) -> Self
     where
-        F: Fn(Variable, bool) -> Option<Expr>,
+        FV: Fn(Variable, bool) -> Option<Expr>,
+        FP: Fn(&Pattern, bool) -> Option<Expr>,
     {
-        self._rewrite_cow(f, false).into_owned()
+        self._rewrite_cow(fv, fp, true).into_owned()
     }
 
-    fn _rewrite_cow<F>(&self, f: &F, negated: bool) -> Cow<Self>
+    fn _rewrite_cow<FV, FP>(&self, fv: &FV, fp: &FP, value: bool) -> Cow<Self>
     where
-        F: Fn(Variable, bool) -> Option<Expr>,
+        FV: Fn(Variable, bool) -> Option<Expr>,
+        FP: Fn(&Pattern, bool) -> Option<Expr>,
     {
-        match &self.0 {
-            ExprNode::Bool(_) => Cow::Borrowed(self),
-            ExprNode::Atom(v) => match f(*v, negated) {
+        match &self.node {
+            ExprNode::True => Cow::Borrowed(self),
+            ExprNode::Variable(var) => match fv(*var, value == self.value) {
                 None => Cow::Borrowed(self),
                 Some(e) => Cow::Owned(e),
             },
-            ExprNode::Not(e) => match e._rewrite_cow(f, !negated) {
-                Cow::Borrowed(_) => Cow::Borrowed(self),
-                Cow::Owned(e) => Cow::Owned(!e),
+            ExprNode::Pattern(p) => match fp(p, self.value == value) {
+                None => Cow::Borrowed(self),
+                Some(e) => match self.value {
+                    true => Cow::Owned(e),
+                    false => Cow::Owned(!e),
+                },
             },
             ExprNode::Operation(op, children) => {
-                let c1 = children.0._rewrite_cow(f, negated);
-                let c2 = children.1._rewrite_cow(f, negated);
+                let c1 = children.0._rewrite_cow(fv, fp, value == self.value);
+                let c2 = children.1._rewrite_cow(fv, fp, value == self.value);
                 if let (Cow::Borrowed(_), Cow::Borrowed(_)) = (&c1, &c2) {
                     return Cow::Borrowed(self);
                 }
-                Cow::Owned(match op {
-                    Operator::And => c1.into_owned() & c2.into_owned(),
-                    Operator::Or => c1.into_owned() | c2.into_owned(),
-                })
+                Cow::Owned(op.join_with_value(self.value, c1.into_owned(), c2.into_owned()))
             }
         }
     }
@@ -231,15 +234,11 @@ impl Expr {
     /// conflicting variables are replaced with the negated flag obtained from their parent tree.
     /// The resulting function is true if it can be true for any value of the conflicting variables.
     pub fn restrict_to_subspace(&self, subspace: &Pattern) -> Self {
-        self.rewrite_cow(&|v, b| match (
-            subspace.positive.contains(v),
-            subspace.negative.contains(v),
-        ) {
-            (false, false) => None,
-            (true, false) => Some(Expr::from(true)),
-            (false, true) => Some(Expr::from(false)),
-            (true, true) => Some(Expr::from(b)),
-        })
+        let mut conflicts = subspace.positive.clone();
+        conflicts.retain_set(&subspace.negative);
+        return self.rewrite_cow(&|v, b| subspace.restrict_variable(v, b), &|p, b| {
+            p.restrict_with_conflicts(subspace, &conflicts, b)
+        });
     }
 }
 
@@ -282,6 +281,113 @@ impl Operator {
             Operator::Or => 1,
         }
     }
+
+    fn join_with_value(
+        self,
+        value: bool,
+        e1: impl Borrow<Expr> + Into<Expr>,
+        e2: impl Borrow<Expr> + Into<Expr>,
+    ) -> Expr {
+        match value {
+            true => self.join(e1, e2),
+            false => self.join(e1, e2).not(),
+        }
+    }
+
+    fn join(self, e1: impl Borrow<Expr> + Into<Expr>, e2: impl Borrow<Expr> + Into<Expr>) -> Expr {
+        let (b1, b2) = (e1.borrow(), e2.borrow());
+        match (&b1.node, &b2.node) {
+            (ExprNode::True, _) => self.fixed_or(b1.value, e2),
+            (_, ExprNode::True) => self.fixed_or(b2.value, e1),
+            (ExprNode::Variable(v1), ExprNode::Variable(v2)) => {
+                self.join_variables(*v1, b1.value, *v2, b2.value)
+            }
+            (ExprNode::Pattern(p), ExprNode::Variable(v)) => {
+                match self.try_extend_pattern(p, b1.value, *v, b2.value) {
+                    Err(_) => self._force_join(e1, e2),
+                    Ok(None) => e1.into(),
+                    Ok(Some(e)) => e,
+                }
+            }
+            (ExprNode::Variable(v), ExprNode::Pattern(p)) => {
+                match self.try_extend_pattern(p, b2.value, *v, b1.value) {
+                    Err(_) => self._force_join(e1, e2),
+                    Ok(None) => e2.into(),
+                    Ok(Some(e)) => e,
+                }
+            }
+            _ => self._force_join(e1, e2),
+        }
+    }
+
+    fn try_extend_pattern(
+        &self,
+        pattern: &Pattern,
+        v_pattern: bool,
+        var: Variable,
+        v_var: bool,
+    ) -> Result<Option<Expr>, ()> {
+        match (self, v_pattern) {
+            (Operator::And, false) => Err(()),
+            (Operator::Or, true) => Err(()),
+            _ => {
+                match (
+                    pattern.is_fixed_at(var, v_var == v_pattern),
+                    pattern.is_fixed_at(var, v_var != v_pattern),
+                ) {
+                    (_, true) => Ok(Some((!v_pattern).into())),
+                    (true, false) => Ok(None),
+                    (false, false) => {
+                        let mut result = pattern.clone();
+                        result.set_ignoring_conflicts(var, v_var == v_pattern);
+                        Ok(Some(Expr::new(v_pattern, ExprNode::Pattern(result))))
+                    }
+                }
+            }
+        }
+    }
+
+    fn join_variables(self, v1: Variable, b1: bool, v2: Variable, b2: bool) -> Expr {
+        if v1 == v2 {
+            return match (self, b1, b2) {
+                (_, true, true) => v1.into(),
+                (_, false, false) => !v1,
+                (Operator::And, _, _) => false.into(),
+                (Operator::Or, _, _) => true.into(),
+            };
+        }
+
+        let mut pattern = Pattern::default();
+        pattern.set_ignoring_conflicts(v1, b1);
+        pattern.set_ignoring_conflicts(v2, b2);
+        match self {
+            Operator::And => pattern.into(),
+            Operator::Or => {
+                pattern.negate_all_variables();
+                !pattern
+            }
+        }
+    }
+
+    fn _force_join(self, e1: impl Into<Expr>, e2: impl Into<Expr>) -> Expr {
+        Expr::from(ExprNode::Operation(self, Arc::new((e1.into(), e2.into()))))
+    }
+
+    fn is_fixed_by(self, b: bool) -> bool {
+        match (self, b) {
+            (Operator::And, false) => true,
+            (Operator::Or, true) => true,
+            (Operator::And, true) => false,
+            (Operator::Or, false) => false,
+        }
+    }
+
+    fn fixed_or(self, b: bool, e: impl Into<Expr>) -> Expr {
+        match self.is_fixed_by(b) {
+            true => Expr::from(b),
+            false => e.into(),
+        }
+    }
 }
 
 impl FromStr for Expr {
@@ -298,22 +404,38 @@ impl From<&Expr> for Expr {
     }
 }
 
+impl From<ExprNode> for Expr {
+    fn from(node: ExprNode) -> Self {
+        Self::new(true, node)
+    }
+}
+
 impl From<bool> for Expr {
     fn from(b: bool) -> Self {
-        Self(ExprNode::Bool(b))
+        Self::new(b, ExprNode::True)
     }
 }
 
 impl From<Variable> for Expr {
     fn from(var: Variable) -> Self {
-        Self(ExprNode::Atom(var))
+        Self::from(ExprNode::Variable(var))
     }
 }
 
 impl From<Pattern> for Expr {
     fn from(p: Pattern) -> Self {
-        let e = p.positive.iter().fold(Expr::from(true), |e, v| e & v);
-        p.negative.iter().fold(e, |e, v| e & !v)
+        if p.is_free_pattern() {
+            return true.into();
+        }
+        if p.has_conflict() {
+            return false.into();
+        }
+        match (p.positive.len(), p.negative.len()) {
+            (0, 0) => true.into(),
+            (1, 0) => p.positive.iter().next().unwrap().into(),
+            (0, 1) => p.negative.iter().next().unwrap().into(),
+            _ => Self::from(ExprNode::Pattern(p)),
+        }
     }
 }
 
@@ -348,18 +470,31 @@ impl PyObjectProtocol<'_> for Expr {
 
 impl Rule for Expr {
     fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VarSpace) -> fmt::Result {
-        self._fmt_expr(f, 0, Some(namer))
+        self._fmt_expr(f, 0, &|f, v| v.fmt_rule(f, namer))
     }
 
     fn eval(&self, state: &State) -> bool {
-        self._eval(state, true)
+        self.value
+            == match &self.node {
+                ExprNode::True => true,
+                ExprNode::Variable(var) => state.is_active(*var),
+                ExprNode::Pattern(p) => p.contains_state(state),
+                ExprNode::Operation(op, children) => match (op, children.0.eval(state)) {
+                    (Operator::And, false) => false,
+                    (Operator::Or, true) => true,
+                    _ => children.1.eval(state),
+                },
+            }
     }
 
     fn collect_regulators(&self, regulators: &mut VarSet) {
-        match &self.0 {
-            ExprNode::Bool(_) => (),
-            ExprNode::Atom(v) => regulators.insert(*v),
-            ExprNode::Not(e) => e.collect_regulators(regulators),
+        match &self.node {
+            ExprNode::True => (),
+            ExprNode::Variable(var) => regulators.insert(*var),
+            ExprNode::Pattern(p) => {
+                regulators.insert_set(&p.positive);
+                regulators.insert_set(&p.negative);
+            }
             ExprNode::Operation(_, children) => {
                 children.0.collect_regulators(regulators);
                 children.1.collect_regulators(regulators);
@@ -371,7 +506,7 @@ impl Rule for Expr {
 // delegate Display impl to the Rule trait
 impl fmt::Display for Expr {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self._fmt_expr(f, 0, None)
+        self._fmt_expr(f, 0, &|f, v| write!(f, "{}", v))
     }
 }
 
@@ -382,75 +517,60 @@ impl fmt::Display for Expr {
 impl Not for Expr {
     type Output = Self;
     fn not(self) -> Self::Output {
-        match self.0 {
-            ExprNode::Bool(b) => Expr::from(!b),
-            ExprNode::Not(e) => Expr::from(e),
-            _ => Expr(ExprNode::Not(Arc::new(self))),
-        }
+        Self::new(!self.value, self.node)
     }
 }
 
 impl Not for &Expr {
     type Output = Expr;
     fn not(self) -> Self::Output {
-        match &self.0 {
-            ExprNode::Bool(b) => Expr::from(!*b),
-            ExprNode::Not(e) => Expr::clone(e),
-            _ => Expr(ExprNode::Not(Arc::new(self.clone()))),
-        }
-    }
-}
-
-impl Not for Variable {
-    type Output = Expr;
-    fn not(self) -> Self::Output {
-        !Expr::from(self)
+        Expr::new(!self.value, self.node.clone())
     }
 }
 
 impl<T: Into<Expr>> BitAnd<T> for Expr {
     type Output = Expr;
     fn bitand(self, rhs: T) -> Self::Output {
-        self.into_join(rhs.into(), Operator::And)
+        Operator::And.join(self, rhs.into())
     }
 }
 
 impl<T: Into<Expr>> BitAnd<T> for &Expr {
     type Output = Expr;
     fn bitand(self, rhs: T) -> Self::Output {
-        Expr::from(self).into_join(rhs.into(), Operator::And)
+        Operator::And.join(self, rhs.into())
     }
 }
 
 impl<T: Into<Expr>> BitAnd<T> for Variable {
     type Output = Expr;
     fn bitand(self, rhs: T) -> Self::Output {
-        Expr::from(self).into_join(rhs.into(), Operator::And)
+        Operator::And.join(Expr::from(self), rhs.into())
     }
 }
 
 impl<T: Into<Expr>> BitOr<T> for Expr {
     type Output = Self;
     fn bitor(self, rhs: T) -> Self::Output {
-        self.into_join(rhs.into(), Operator::Or)
+        Operator::Or.join(self, rhs.into())
     }
 }
 
 impl<T: Into<Expr>> BitOr<T> for &Expr {
     type Output = Expr;
     fn bitor(self, rhs: T) -> Self::Output {
-        Expr::from(self).into_join(rhs.into(), Operator::Or)
+        Operator::Or.join(self, rhs.into())
     }
 }
 
 impl<T: Into<Expr>> BitOr<T> for Variable {
     type Output = Expr;
     fn bitor(self, rhs: T) -> Self::Output {
-        Expr::from(self).into_join(rhs.into(), Operator::Or)
+        Operator::Or.join(Expr::from(self), rhs.into())
     }
 }
 
-// Operator overloading for turn Variable into expressions literals
+// Operator overloading to turn Variable into expressions literals
 #[cfg(feature = "pyo3")]
 #[pyproto]
 impl PyNumberProtocol for Variable {
@@ -561,6 +681,7 @@ mod tests {
         let mut vs = VarSpace::default();
         let e1 = vs.parse_expression_with_new_variables("A | !(B & C) | D")?;
         let e2 = vs.parse_expression_with_new_variables("A | (B & C)")?;
+        let e3 = !&e2;
 
         let var_b = vs.get_variable("B")?;
         let var_d = vs.get_variable("D")?;
@@ -583,6 +704,7 @@ mod tests {
         sub.set(var_b, false);
         assert_eq!(e1.restrict_to_subspace(&sub), Expr::from(true));
         assert_eq!(e2.restrict_to_subspace(&sub), vs.parse_expression("A")?);
+        assert_eq!(e3.restrict_to_subspace(&sub), vs.parse_expression("!A")?);
 
         sub.set_ignoring_conflicts(var_b, true);
         assert_eq!(
@@ -590,6 +712,10 @@ mod tests {
             vs.parse_expression("A | !C")?
         );
         assert_eq!(e2.restrict_to_subspace(&sub), vs.parse_expression("A")?);
+        assert_eq!(
+            e3.restrict_to_subspace(&sub),
+            vs.parse_expression("!A & !C")?
+        );
 
         Ok(())
     }

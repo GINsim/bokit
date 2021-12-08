@@ -2,11 +2,11 @@ use crate::*;
 
 use std::fmt;
 use std::fmt::Formatter;
-use std::iter::FromIterator;
 use std::str::FromStr;
 
 #[cfg(feature = "pyo3")]
 use pyo3::{prelude::*, PyObjectProtocol};
+use std::ops::Not;
 
 /// A subspace defined by sets of active and inactive variables, the others are implicitly free.
 ///
@@ -47,17 +47,18 @@ impl Pattern {
     /// Create a pattern restricted to a single state
     /// To properly set all variables fixed at 0, this requires
     /// an extra parameter giving the list of variables.
-    pub fn from_state(state: State, variables: impl IntoIterator<Item = Variable>) -> Pattern {
-        let mut neg = VarSet::from_iter(variables);
-        let mut pos = state.into();
-        pos.intersect_with(&neg);
-        neg.difference_with(&pos);
+    pub fn from_state(state: State, variables: impl Into<VarSet>) -> Pattern {
+        let mut neg = variables.into();
+        let mut pos = state.into_active();
+        pos.retain_set(&neg);
+        neg.remove_set(&pos);
         Pattern::with(pos, neg)
     }
 
     /// Parse a pattern using the specified variables
     ///
-    /// Instead of using naturally ordered variables as in the default parser, we use
+    /// Instead of using naturally ordered variables as in the default parser,
+    /// we provide an ordered list of variables used in the string representation
     pub fn parse_with_variables(descr: &str, variables: &VarList) -> Result<Self, BokitError> {
         let mut p = Pattern::default();
         let mut vars = variables.iter();
@@ -79,9 +80,63 @@ impl Pattern {
         Ok(p)
     }
 
-    pub(crate) fn restrict_ignore_conflicts(&mut self, subspace: &Pattern) {
-        self.positive.difference_with(&subspace.positive);
-        self.negative.difference_with(&subspace.negative);
+    pub(crate) fn restrict_with_conflicts(
+        &self,
+        subspace: &Pattern,
+        conflicts: &VarSet,
+        positive: bool,
+    ) -> Option<Expr> {
+        if self.has_fixed_variables(conflicts) {
+            if positive {
+                return Some(false.into());
+            }
+
+            // remove satisfied and conflicting variables
+            let mut result = self.clone();
+            result.free_set(&conflicts);
+            result.remove_shared_restrictions(subspace);
+            return Some(result.into());
+        }
+
+        // false on conflicting variables
+        if !self.positive.is_disjoint(&subspace.negative)
+            || !self.negative.is_disjoint(&subspace.positive)
+        {
+            return Some(false.into());
+        }
+
+        // Unchanged in absence of satisfied variable
+        if self.positive.is_disjoint(&subspace.positive)
+            && self.negative.is_disjoint(&subspace.negative)
+        {
+            return None;
+        }
+
+        // Remove satisfied variables
+        let mut result = self.clone();
+        result.remove_shared_restrictions(subspace);
+        Some(result.into())
+    }
+
+    pub(crate) fn restrict_variable<T: From<bool>>(
+        &self,
+        v: Variable,
+        positive: bool,
+    ) -> Option<T> {
+        match (self.positive.contains(v), self.negative.contains(v)) {
+            (false, false) => None,
+            (true, false) => Some(true),
+            (false, true) => Some(false),
+            (true, true) => Some(!positive),
+        }
+        .map(|b| b.into())
+    }
+
+    pub fn iter_fixed_values(&self) -> impl Iterator<Item = (Variable, bool)> + '_ {
+        self.positive
+            .iter()
+            .map(|v| (v, true))
+            .chain(self.negative.iter().map(|v| (v, false)))
     }
 }
 
@@ -94,6 +149,26 @@ impl Pattern {
             Some(descr) => Pattern::from_str(descr)?,
             None => Pattern::default(),
         })
+    }
+
+    /// Check if all variables are free in this pattern.
+    ///
+    /// returns true if the positive and negative sets are both empty
+    pub fn is_free_pattern(&self) -> bool {
+        self.positive.is_empty() && self.negative.is_empty()
+    }
+
+    /// Test if a variable is fixed at any value in this pattern
+    pub fn is_fixed(&self, var: Variable) -> bool {
+        self.positive.contains(var) || self.positive.contains(var)
+    }
+
+    /// Test if a variable is fixed at a specific value in this pattern
+    pub fn is_fixed_at(&self, var: Variable, value: bool) -> bool {
+        match value {
+            true => self.positive.contains(var),
+            false => self.negative.contains(var),
+        }
     }
 
     /// Fix a variable to a specific value.
@@ -110,6 +185,18 @@ impl Pattern {
             self.positive.remove(var);
             self.negative.insert(var);
         }
+    }
+
+    /// Fix a variable if it does not introduce a conflict.
+    ///
+    /// Returns true if the variable was free or already fixed at the required value.
+    /// Returns false if the variable was previously fixed at the opposite value.
+    pub fn try_set(&mut self, var: Variable, value: bool) -> bool {
+        if self.is_fixed_at(var, !value) {
+            return false;
+        }
+        self.set_ignoring_conflicts(var, value);
+        true
     }
 
     /// Remove a single constraint.
@@ -132,9 +219,34 @@ impl Pattern {
         self.negative.remove(var);
     }
 
+    /// Remove all constraints on a set of variables.
+    pub fn free_set(&mut self, vars: &VarSet) {
+        self.positive.remove_set(vars);
+        self.negative.remove_set(vars);
+    }
+
+    /// Remove restrictions shared with an other pattern.
+    ///
+    /// Note that this considers positive and negative restrictions separately and
+    /// does not handle conflicts.
+    pub fn remove_shared_restrictions(&mut self, subspace: &Pattern) {
+        self.positive.remove_set(&subspace.positive);
+        self.negative.remove_set(&subspace.negative);
+    }
+
+    /// Change the sign of all fixed variable.
+    pub fn negate_all_variables(&mut self) {
+        std::mem::swap(&mut self.positive, &mut self.negative);
+    }
+
     /// Check if this pattern has some inner conflict
     pub fn has_conflict(&self) -> bool {
         !self.positive.is_disjoint(&self.negative)
+    }
+
+    /// Check if the pattern fixes some variables from the given set
+    pub fn has_fixed_variables(&self, vars: &VarSet) -> bool {
+        !self.positive.is_disjoint(vars) || !self.negative.is_disjoint(vars)
     }
 
     /// Restrict this pattern to its intersection with the given subspace.
@@ -145,7 +257,7 @@ impl Pattern {
         if !self.overlaps(subspace) {
             return false;
         }
-        self.restrict_ignore_conflicts(subspace);
+        self.remove_shared_restrictions(subspace);
         true
     }
 
@@ -162,25 +274,6 @@ impl Pattern {
         }
     }
 
-    /// Clone and restrict if no conflict is introduced.
-    pub fn try_set(&self, var: Variable, value: bool) -> Option<Self> {
-        if self.has_restriction(var, !value) {
-            return None;
-        }
-        let mut result = self.clone();
-        result.set_ignoring_conflicts(var, value);
-        Some(result)
-    }
-
-    /// Test if a variable is fixed at a specific value in this pattern
-    pub fn has_restriction(&self, var: Variable, value: bool) -> bool {
-        if value {
-            self.positive.contains(var)
-        } else {
-            self.negative.contains(var)
-        }
-    }
-
     /// Extract the pattern emerging from a pair of patterns if it exists.
     ///
     /// A new pattern can emerge from a pair of patterns with a single conflict.
@@ -188,39 +281,41 @@ impl Pattern {
     /// patterns are combined. Each of the initial pattern covers half of the new pattern.
     pub fn emerging_pattern(&self, other: &Self) -> Option<Self> {
         let mut pos = self.positive.clone();
-        pos.union_with(&other.positive);
+        pos.insert_set(&other.positive);
         let mut neg = self.negative.clone();
-        neg.union_with(&other.negative);
+        neg.insert_set(&other.negative);
 
-        let mut conflicts = pos.variables.intersection(&neg.variables);
-        if let Some(uid) = conflicts.next() {
-            if conflicts.next().is_none() {
-                pos.remove(Variable::new(uid));
-                neg.remove(Variable::new(uid));
-                return Some(Pattern::with(pos, neg));
-            }
+        let mut conflicts = pos.clone();
+        conflicts.retain_set(&neg);
+        if conflicts.len() == 1 {
+            pos.remove_set(&conflicts);
+            neg.remove_set(&conflicts);
+            return Some(Pattern::with(pos, neg));
         }
         None
     }
 
     /// Check if a state is contained in this patter
     pub fn contains_state(&self, state: &State) -> bool {
-        state.active.contains_all(&self.positive) && state.active.is_disjoint(&self.negative)
+        state.as_ref().contains_set(&self.positive) && state.as_ref().is_disjoint(&self.negative)
     }
 
     /// Check if this pattern shares at least one state with another pattern
+    ///
+    /// returns false if at least variable is fixed at opposite values in both patterns.
+    /// Conflicts are ignored as long as a conflicting variable in one of the patterns is free in the other one.
     pub fn overlaps(&self, other: &Pattern) -> bool {
         self.positive.is_disjoint(&other.negative) && self.negative.is_disjoint(&other.positive)
     }
 
     /// Test if this pattern contains the given pattern.
-    pub fn contains(&self, p: &Pattern) -> bool {
-        p.positive.contains_all(&self.positive) && p.negative.contains_all(&self.negative)
+    pub fn contains_subspace(&self, p: &Pattern) -> bool {
+        p.positive.contains_set(&self.positive) && p.negative.contains_set(&self.negative)
     }
 
     /// Test if all variables used in this pattern are contained in a given set
     pub fn variables_contained_in(&self, vars: &VarSet) -> bool {
-        vars.contains_all(&self.positive) && vars.contains_all(&self.negative)
+        vars.contains_set(&self.positive) && vars.contains_set(&self.negative)
     }
 }
 
@@ -249,6 +344,13 @@ impl FromStr for Pattern {
     }
 }
 
+impl Not for Pattern {
+    type Output = Expr;
+    fn not(self) -> Self::Output {
+        Expr::from(self).not()
+    }
+}
+
 impl Rule for Pattern {
     fn fmt_rule(&self, f: &mut Formatter, _collection: &VarSpace) -> fmt::Result {
         write!(f, "{}", self)
@@ -259,8 +361,8 @@ impl Rule for Pattern {
     }
 
     fn collect_regulators(&self, regulators: &mut VarSet) {
-        regulators.union_with(&self.positive);
-        regulators.union_with(&self.negative);
+        regulators.insert_set(&self.positive);
+        regulators.insert_set(&self.negative);
     }
 }
 
@@ -357,15 +459,15 @@ mod tests {
         let mut t = Pattern::default();
         p.set(Variable(3), true);
         p.set(Variable(2), true);
-        assert!(t.contains(&p));
+        assert!(t.contains_subspace(&p));
 
         t.set(Variable(2), true);
-        assert!(t.contains(&p));
+        assert!(t.contains_subspace(&p));
 
         t.set(Variable(3), true);
-        assert!(t.contains(&p));
+        assert!(t.contains_subspace(&p));
 
         t.set(Variable(5), true);
-        assert!(!t.contains(&p));
+        assert!(!t.contains_subspace(&p));
     }
 }

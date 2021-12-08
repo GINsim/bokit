@@ -7,11 +7,10 @@ use std::str::FromStr;
 #[cfg(feature = "pyo3")]
 use pyo3::{prelude::*, PyObjectProtocol};
 
-/// A state defined by the set of active variables, the others are implicitly inactive.
+/// A state defined as a set of active variables, the others are implicitly inactive.
 ///
-/// Here states are defined as sets of all active variables (using bit-sets internally) and all other variables
+/// Here states are defined as [sets of active variables](VarSet) and all other variables
 /// are implicitly considered as inactive.
-///
 /// Just like the underlying [VarSet], a state can be constructed explicitly by activating or disabling
 /// individual variables, or by importing an existing collection of variables, or parsed from a string.
 ///
@@ -19,14 +18,14 @@ use pyo3::{prelude::*, PyObjectProtocol};
 /// use bokit::{State, Variable};
 /// use std::iter::FromIterator;
 ///
-/// let v0 = Variable::from(0);
-/// let v1 = Variable::from(1);
-/// let v2 = Variable::from(2);
-/// let v3 = Variable::from(3);
-/// let v4 = Variable::from(4);
-/// let v6 = Variable::from(6);
+/// let v0 = Variable::new(0);
+/// let v1 = Variable::new(1);
+/// let v2 = Variable::new(2);
+/// let v3 = Variable::new(3);
+/// let v4 = Variable::new(4);
+/// let v6 = Variable::new(6);
 ///
-/// let mut state = State::default();
+/// let mut state = State::new();
 /// state.activate(v1);
 /// state.activate(v3);
 /// state.disable(v2);
@@ -46,7 +45,25 @@ use pyo3::{prelude::*, PyObjectProtocol};
 #[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 #[derive(Clone, Default, Debug)]
 pub struct State {
-    pub(crate) active: VarSet,
+    active: VarSet,
+}
+
+// Functions which are not mapped directly in Python
+impl State {
+    /// Create a new state without any active variable
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Iterate over the set of active variables
+    pub fn iter_active(&self) -> Iter {
+        self.active.iter()
+    }
+
+    /// Return the set of active variables
+    pub fn into_active(self) -> VarSet {
+        self.active
+    }
 }
 
 #[cfg_attr(feature = "pyo3", pymethods)]
@@ -74,28 +91,27 @@ impl State {
     pub fn is_active(&self, var: Variable) -> bool {
         self.active.contains(var)
     }
+
+    /// Get the number of active variables in this state
+    ///
+    /// Note that the number of inactive variables depends on a separate set of variables
+    pub fn len_active(&self) -> usize {
+        self.active.len()
+    }
 }
 
-impl State {
-    /// Return the inner set of active variables
-    pub fn active(&self) -> &VarSet {
+impl AsRef<VarSet> for State {
+    fn as_ref(&self) -> &VarSet {
         &self.active
     }
+}
 
-    pub fn active_mut(&mut self) -> &mut VarSet {
+impl AsMut<VarSet> for State {
+    fn as_mut(&mut self) -> &mut VarSet {
         &mut self.active
     }
-
-    /// Iterate over the set of active variables
-    pub fn iter_active(&self) -> Iter {
-        self.active.iter()
-    }
-
-    /// Return the set of active variables
-    pub fn into(self) -> VarSet {
-        self.active
-    }
 }
+
 impl<T: Into<VarSet>> From<T> for State {
     fn from(vs: T) -> Self {
         Self { active: vs.into() }
@@ -134,7 +150,16 @@ impl FromStr for State {
 
 impl fmt::Display for State {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "{}", &self.active)
+        let mut pos = 0;
+        for v in self {
+            while pos < v.uid() {
+                write!(f, "0")?;
+                pos += 1;
+            }
+            write!(f, "1")?;
+            pos += 1;
+        }
+        Ok(())
     }
 }
 

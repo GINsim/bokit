@@ -128,7 +128,7 @@ impl Implicants {
     }
 
     pub fn range_covers(&self, range: Range<usize>, p: &Pattern) -> bool {
-        self.patterns[range].iter().any(|t| t.contains(p))
+        self.patterns[range].iter().any(|t| t.contains_subspace(p))
     }
 
     /// Find the patterns emerging from two sets of patterns.
@@ -220,7 +220,7 @@ impl Implicants {
     /// are simplified to eliminate unnecessary fixed variables.
     ///
     /// In absence of conflicting variable in the subspace, we obtain the non-empty intersections of patterns with
-    /// the subspace. A conflicting variable in the subspace is considered as a conflict if it fixed at any value
+    /// the subspace. A conflicting variable in the subspace is considered as a conflict if it is fixed at any value
     /// in an implicant, but the implicants where it does not appear remain valid.
     /// The resulting function evaluates to true if it is satisfied without the conflicting variables.
     pub fn restrict_to_subspace(&mut self, fixed: &Pattern) {
@@ -232,7 +232,7 @@ impl Implicants {
         self.quick_retain(|p| p.overlaps(fixed));
         self.patterns
             .iter_mut()
-            .for_each(|p| p.restrict_ignore_conflicts(fixed));
+            .for_each(|p| p.remove_shared_restrictions(fixed));
         // TODO: the subsumed flag is cleared to be safe, can we preserve it?
         self.subsumed_flag &= self.len() > 1;
     }
@@ -256,10 +256,10 @@ impl Implicants {
     pub fn restrict(&mut self, uid: Variable, value: bool) -> usize {
         // Start by removing all conflicting patterns
         let not_value = !value;
-        self.quick_retain(|p| !p.has_restriction(uid, not_value));
+        self.quick_retain(|p| !p.is_fixed_at(uid, not_value));
 
         // Group the unchanged patterns at the start of the list
-        let pivot = self.quick_partition(|p| p.has_restriction(uid, value));
+        let pivot = self.quick_partition(|p| p.is_fixed_at(uid, value));
 
         // Apply the restriction to the remaining patterns
         self.patterns[pivot..]
@@ -294,7 +294,7 @@ impl Implicants {
             0 => (),
             1 => {
                 let o = &other[0];
-                self.quick_retain(|p| !o.contains(p));
+                self.quick_retain(|p| !o.contains_subspace(p));
             }
             _ => {
                 // TODO: use summaries to speed it up
@@ -322,7 +322,7 @@ impl Implicants {
         if self.covers(&p) {
             return;
         }
-        self.quick_retain(|t| !p.contains(t));
+        self.quick_retain(|t| !p.contains_subspace(t));
         self.patterns.push(p);
     }
 
@@ -345,11 +345,11 @@ impl Implicants {
                     continue;
                 }
                 let p2 = &self.patterns[idx2];
-                if p2.contains(p) {
+                if p2.contains_subspace(p) {
                     filtered.insert(idx);
                     break;
                 }
-                if p.contains(p2) {
+                if p.contains_subspace(p2) {
                     filtered.insert(idx2);
                 }
             }
@@ -398,7 +398,7 @@ fn extract_implicants(obj: &PyAny) -> PyResult<Implicants> {
 }
 
 pub fn covers_slice(slice: &[Pattern], p: &Pattern) -> bool {
-    slice.iter().any(|t| t.contains(p))
+    slice.iter().any(|t| t.contains_subspace(p))
 }
 
 impl Index<usize> for Implicants {
