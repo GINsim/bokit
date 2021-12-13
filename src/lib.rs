@@ -163,6 +163,7 @@
 //! ```
 
 mod convert;
+pub mod efmt;
 mod error;
 mod expr;
 mod implicants;

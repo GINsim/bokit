@@ -1,9 +1,9 @@
 use crate::*;
 
 use std::fmt;
-use std::fmt::Formatter;
 use std::str::FromStr;
 
+use crate::efmt::ExprFormatter;
 #[cfg(feature = "pyo3")]
 use pyo3::{prelude::*, PyObjectProtocol};
 use std::ops::Not;
@@ -352,8 +352,8 @@ impl Not for Pattern {
 }
 
 impl Rule for Pattern {
-    fn fmt_rule(&self, f: &mut Formatter, _collection: &VarSpace) -> fmt::Result {
-        write!(f, "{}", self)
+    fn fmt_with(&self, f: &mut dyn ExprFormatter) -> fmt::Result {
+        f.write_pattern(self, true, None)
     }
 
     fn eval(&self, state: &State) -> bool {

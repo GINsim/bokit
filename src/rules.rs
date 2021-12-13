@@ -1,3 +1,4 @@
+use crate::efmt::{ExprFormatter, InfixFormatter};
 use crate::{Expr, Implicants, Primes, State, VarSet, VarSpace};
 use std::fmt;
 use std::fmt::Formatter;
@@ -6,8 +7,20 @@ use std::fmt::Formatter;
 ///
 /// This trait defines the API to evaluate and display Boolean rules
 pub trait Rule {
-    /// Display the rule using the selected helper
-    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VarSpace) -> fmt::Result;
+    /// Display using the default infix formatter
+    fn fmt_rule(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut infix = InfixFormatter::new(f);
+        self.fmt_with(&mut infix)
+    }
+
+    /// Display using the default infix formatter
+    fn fmt_named(&self, f: &mut fmt::Formatter, vs: &VarSpace) -> fmt::Result {
+        let mut infix = InfixFormatter::named(f, vs);
+        self.fmt_with(&mut infix)
+    }
+
+    /// Display the rule using the selected formatter
+    fn fmt_with(&self, f: &mut dyn ExprFormatter) -> fmt::Result;
 
     /// Evaluate the rule on the given state
     fn eval(&self, state: &State) -> bool;
@@ -47,8 +60,8 @@ impl SomeRule {
 }
 
 impl Rule for SomeRule {
-    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VarSpace) -> fmt::Result {
-        self.inner_rule().fmt_rule(f, namer)
+    fn fmt_with(&self, f: &mut dyn ExprFormatter) -> fmt::Result {
+        self.inner_rule().fmt_with(f)
     }
 
     fn eval(&self, state: &State) -> bool {

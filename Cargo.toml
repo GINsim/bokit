@@ -9,6 +9,7 @@ edition     = "2021"
 
 [dependencies]
 bit-set     = "0.5"
+delegate    = "0.6"
 once_cell   = "1.8"
 pest        = "2.1"
 pest_derive = "2.1"

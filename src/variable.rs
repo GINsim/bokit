@@ -2,7 +2,6 @@
 
 use crate::*;
 
-use crate::space::VarSpace;
 use bit_set::BitSet;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -10,6 +9,7 @@ use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
 
+use crate::efmt::ExprFormatter;
 use crate::error::ParseError;
 #[cfg(feature = "pyo3")]
 use pyo3::{prelude::*, PyObjectProtocol};
@@ -66,8 +66,8 @@ impl From<usize> for Variable {
 }
 
 impl Rule for Variable {
-    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VarSpace) -> fmt::Result {
-        namer.format_variable(f, *self)
+    fn fmt_with(&self, f: &mut dyn ExprFormatter) -> fmt::Result {
+        f.write_variable(*self, true)
     }
 
     fn eval(&self, state: &State) -> bool {
@@ -81,7 +81,7 @@ impl Rule for Variable {
 
 impl fmt::Display for Variable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "_{}_", self.0)
+        write!(f, "_{}_", self.uid())
     }
 }
 

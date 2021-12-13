@@ -7,6 +7,7 @@ use std::slice::Iter;
 use std::str::FromStr;
 use std::vec::IntoIter;
 
+use crate::efmt::ExprFormatter;
 use crate::expr::{ExprNode, Operator};
 #[cfg(feature = "pyo3")]
 use pyo3::{exceptions::PyValueError, prelude::*, PyObjectProtocol};
@@ -287,8 +288,8 @@ impl FromStr for Primes {
 }
 
 impl Rule for Primes {
-    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VarSpace) -> fmt::Result {
-        self.patterns.fmt_rule(f, namer)
+    fn fmt_with(&self, f: &mut dyn ExprFormatter) -> fmt::Result {
+        self.patterns.fmt_with(f)
     }
 
     fn eval(&self, state: &State) -> bool {

@@ -4,12 +4,12 @@ use core::ops::BitAnd;
 use core::ops::BitOr;
 use core::ops::Not;
 use std::borrow::{Borrow, Cow};
-use std::fmt;
 use std::fmt::Debug;
 use std::str::FromStr;
 
 use crate::*;
 
+use crate::efmt;
 #[cfg(feature = "pyo3")]
 use pyo3::{exceptions::PyValueError, PyNumberProtocol, PyObjectProtocol};
 
@@ -97,64 +97,17 @@ impl Expr {
         Self { value, node }
     }
 
-    /// Clean formatting of expressions.
-    ///
-    /// This recursive function carries two additional arguments:
-    /// * the priority of the parent to decide when to add parenthesis,
-    /// * a closure to format atoms, enabling to switch from generic names to search in a custom data structure.
-    fn _fmt_expr<F>(&self, f: &mut fmt::Formatter, p: u8, namer: &F) -> fmt::Result
-    where
-        F: Fn(&mut fmt::Formatter<'_>, &Variable) -> fmt::Result,
-    {
+    fn _fmt_expr(&self, f: &mut dyn efmt::ExprFormatter, parent: Option<Operator>) -> fmt::Result {
         match &self.node {
-            ExprNode::True => match self.value {
-                true => write!(f, "TRUE"),
-                false => write!(f, "FALSE"),
-            },
-            ExprNode::Variable(var) => {
-                if !self.value {
-                    write!(f, "!")?;
-                }
-                namer(f, var)
-            }
-            ExprNode::Pattern(p) => {
-                // Write all positive and negative variables.
-                if self.value {
-                    write!(f, "[")?;
-                } else {
-                    write!(f, "![")?;
-                }
-
-                let sep = " & ";
-                let mut first = true;
-                for (var, value) in p.iter_fixed_values() {
-                    match first {
-                        true => first = false,
-                        false => write!(f, "{}", sep)?,
-                    }
-                    if !value {
-                        write!(f, "!")?;
-                    }
-                    namer(f, &var)?;
-                }
-                write!(f, "]")
-            }
+            ExprNode::True => f.write_bool(self.value),
+            ExprNode::Variable(var) => f.write_variable(*var, self.value),
+            ExprNode::Pattern(p) => f.write_pattern(p, self.value, parent),
             ExprNode::Operation(o, c) => {
-                let np = o.priority();
-                if !self.value {
-                    write!(f, "!(")?;
-                } else if np < p {
-                    write!(f, "(")?;
-                }
-
-                c.0._fmt_expr(f, np, namer)?;
-                write!(f, " {} ", o)?;
-                c.1._fmt_expr(f, np, namer)?;
-
-                if !self.value || np < p {
-                    write!(f, ")")?;
-                }
-                Ok(())
+                f.start_operation(*o, self.value, parent)?;
+                c.0._fmt_expr(f, Some(*o))?;
+                f.sep_operation(*o)?;
+                c.1._fmt_expr(f, Some(*o))?;
+                f.end_operation(*o, self.value, parent)
             }
         }
     }
@@ -275,7 +228,7 @@ impl Operator {
     /// Define the priority of operators
     ///
     /// This priority controls the addition of necessary parenthesis when formatting expressions.
-    fn priority(self) -> u8 {
+    pub fn priority(self) -> u8 {
         match self {
             Operator::And => 2,
             Operator::Or => 1,
@@ -469,8 +422,8 @@ impl PyObjectProtocol<'_> for Expr {
 }
 
 impl Rule for Expr {
-    fn fmt_rule(&self, f: &mut fmt::Formatter, namer: &VarSpace) -> fmt::Result {
-        self._fmt_expr(f, 0, &|f, v| v.fmt_rule(f, namer))
+    fn fmt_with(&self, f: &mut dyn efmt::ExprFormatter) -> fmt::Result {
+        self._fmt_expr(f, None)
     }
 
     fn eval(&self, state: &State) -> bool {
@@ -503,10 +456,10 @@ impl Rule for Expr {
     }
 }
 
-// delegate Display impl to the Rule trait
+// Delegate Display to the rule trait
 impl fmt::Display for Expr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self._fmt_expr(f, 0, &|f, v| write!(f, "{}", v))
+    fn fmt<'a>(&self, f: &'a mut fmt::Formatter<'_>) -> fmt::Result {
+        Rule::fmt_rule(self, f)
     }
 }
 

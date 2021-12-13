@@ -472,7 +472,7 @@ impl<'a> IntoIterator for &'a VarSpace {
 
 impl fmt::Display for NamedRule<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.rule.fmt_rule(f, self.namer)
+        self.rule.fmt_named(f, &self.namer)
     }
 }
 

@@ -2,13 +2,13 @@
 
 use crate::*;
 use bit_set::BitSet;
-use std::fmt::Display;
 use std::iter::FromIterator;
 use std::ops::{Index, IndexMut, Range};
 use std::slice::Iter;
 use std::str::FromStr;
 use std::vec::IntoIter;
 
+use crate::efmt::ExprFormatter;
 #[cfg(feature = "pyo3")]
 use pyo3::{exceptions::PyValueError, prelude::*, PyObjectProtocol};
 
@@ -186,6 +186,13 @@ impl Implicants {
     /// Remove a pattern and replace it with the last one
     pub fn swap_remove(&mut self, index: usize) -> Pattern {
         self.patterns.swap_remove(index)
+    }
+
+    fn _fmt(&self, f: &mut dyn ExprFormatter) -> fmt::Result {
+        for p in &self.patterns {
+            writeln!(f, "{}", p)?;
+        }
+        write!(f, "")
     }
 }
 
@@ -462,8 +469,8 @@ impl<T: Into<Pattern>> From<T> for Implicants {
 }
 
 impl Rule for Implicants {
-    fn fmt_rule(&self, f: &mut fmt::Formatter, _namer: &VarSpace) -> fmt::Result {
-        self.fmt(f)
+    fn fmt_with(&self, f: &mut dyn ExprFormatter) -> fmt::Result {
+        self._fmt(f)
     }
 
     fn eval(&self, state: &State) -> bool {
@@ -479,10 +486,7 @@ impl Rule for Implicants {
 
 impl fmt::Display for Implicants {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        for p in &self.patterns {
-            writeln!(f, "{}", p)?;
-        }
-        write!(f, "")
+        self.fmt_rule(f)
     }
 }
 
