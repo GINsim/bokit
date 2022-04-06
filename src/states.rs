@@ -5,7 +5,7 @@ use std::iter::FromIterator;
 use std::str::FromStr;
 
 #[cfg(feature = "pyo3")]
-use pyo3::{prelude::*, PyObjectProtocol};
+use pyo3::prelude::*;
 
 /// A state defined as a set of active variables, the others are implicitly inactive.
 ///
@@ -98,6 +98,16 @@ impl State {
     pub fn len_active(&self) -> usize {
         self.active.len()
     }
+
+    #[cfg(feature = "pyo3")]
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
 }
 
 impl AsRef<VarSet> for State {
@@ -160,16 +170,5 @@ impl fmt::Display for State {
             pos += 1;
         }
         Ok(())
-    }
-}
-
-#[cfg(feature = "pyo3")]
-#[pyproto]
-impl PyObjectProtocol<'_> for State {
-    fn __str__(&self) -> String {
-        format!("{}", self)
-    }
-    fn __repr__(&self) -> String {
-        format!("{:?}", self)
     }
 }

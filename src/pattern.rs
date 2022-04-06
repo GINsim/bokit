@@ -5,7 +5,7 @@ use std::str::FromStr;
 
 use crate::efmt::ExprFormatter;
 #[cfg(feature = "pyo3")]
-use pyo3::{prelude::*, PyObjectProtocol};
+use pyo3::prelude::*;
 use std::ops::Not;
 
 /// A subspace defined by sets of active and inactive variables, the others are implicitly free.
@@ -93,7 +93,7 @@ impl Pattern {
 
             // remove satisfied and conflicting variables
             let mut result = self.clone();
-            result.free_set(&conflicts);
+            result.free_set(conflicts);
             result.remove_shared_restrictions(subspace);
             return Some(result.into());
         }
@@ -317,6 +317,16 @@ impl Pattern {
     pub fn variables_contained_in(&self, vars: &VarSet) -> bool {
         vars.contains_set(&self.positive) && vars.contains_set(&self.negative)
     }
+
+    #[cfg(feature = "pyo3")]
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
 }
 
 impl FromStr for Pattern {
@@ -387,17 +397,6 @@ impl fmt::Display for Pattern {
         }
         let s: String = result.iter().collect();
         write!(f, "{}", &s)
-    }
-}
-
-#[cfg(feature = "pyo3")]
-#[pyproto]
-impl PyObjectProtocol<'_> for Pattern {
-    fn __str__(&self) -> String {
-        format!("{}", self)
-    }
-    fn __repr__(&self) -> String {
-        format!("{:?}", self)
     }
 }
 

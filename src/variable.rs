@@ -12,7 +12,7 @@ use std::str::FromStr;
 use crate::efmt::ExprFormatter;
 use crate::error::ParseError;
 #[cfg(feature = "pyo3")]
-use pyo3::{prelude::*, PyObjectProtocol};
+use pyo3::prelude::*;
 use std::ops::Not;
 
 static RE_GENERIC_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*_?([01-9]+)_?\s*$").unwrap());
@@ -57,6 +57,31 @@ impl Variable {
     pub fn eval_py(&self, state: &State) -> bool {
         self.eval(state)
     }
+
+    #[cfg(feature = "pyo3")]
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __or__(&self, rhs: &PyAny) -> PyResult<Expr> {
+        Expr::from(*self).__or__(rhs)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __and__(&self, rhs: &PyAny) -> PyResult<Expr> {
+        Expr::from(*self).__and__(rhs)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __invert__(&self) -> Expr {
+        !Expr::from(*self)
+    }
 }
 
 impl From<usize> for Variable {
@@ -82,17 +107,6 @@ impl Rule for Variable {
 impl fmt::Display for Variable {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "_{}_", self.uid())
-    }
-}
-
-#[cfg(feature = "pyo3")]
-#[pyproto]
-impl PyObjectProtocol<'_> for Variable {
-    fn __str__(&self) -> String {
-        format!("{}", self)
-    }
-    fn __repr__(&self) -> String {
-        format!("{:?}", self)
     }
 }
 
@@ -255,6 +269,16 @@ impl VarSet {
     pub fn retain_set(&mut self, vars: &Self) {
         self.0.intersect_with(&vars.0);
     }
+
+    #[cfg(feature = "pyo3")]
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
 }
 
 impl From<BitSet> for VarSet {
@@ -309,17 +333,6 @@ impl fmt::Display for VarSet {
             write!(f, "{}", v.uid())?;
         }
         write!(f, "}}")
-    }
-}
-
-#[cfg(feature = "pyo3")]
-#[pyproto]
-impl PyObjectProtocol<'_> for VarSet {
-    fn __str__(&self) -> String {
-        format!("{}", self)
-    }
-    fn __repr__(&self) -> String {
-        format!("{:?}", self)
     }
 }
 

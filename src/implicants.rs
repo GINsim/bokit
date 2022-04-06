@@ -10,7 +10,7 @@ use std::vec::IntoIter;
 
 use crate::efmt::ExprFormatter;
 #[cfg(feature = "pyo3")]
-use pyo3::{exceptions::PyValueError, prelude::*, PyObjectProtocol};
+use pyo3::{exceptions::PyValueError, prelude::*};
 
 pub(crate) static PATTERN_SEPARATORS: [char; 4] = [',', ';', '|', '\n'];
 
@@ -379,6 +379,16 @@ impl Implicants {
     pub fn is_empty(&self) -> bool {
         self.patterns.is_empty()
     }
+
+    #[cfg(feature = "pyo3")]
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __repr__(&self) -> String {
+        format!("{}", self)
+    }
 }
 
 #[cfg(feature = "pyo3")]
@@ -487,17 +497,6 @@ impl Rule for Implicants {
 impl fmt::Display for Implicants {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.fmt_rule(f)
-    }
-}
-
-#[cfg(feature = "pyo3")]
-#[pyproto]
-impl PyObjectProtocol<'_> for Implicants {
-    fn __str__(&self) -> String {
-        format!("{}", self)
-    }
-    fn __repr__(&self) -> String {
-        format!("{}", self)
     }
 }
 

@@ -9,9 +9,8 @@ use std::str::FromStr;
 
 use crate::*;
 
-use crate::efmt;
 #[cfg(feature = "pyo3")]
-use pyo3::{exceptions::PyValueError, PyNumberProtocol, PyObjectProtocol};
+use pyo3::exceptions::PyValueError;
 
 /// A Boolean expression tree.
 ///
@@ -189,9 +188,34 @@ impl Expr {
     pub fn restrict_to_subspace(&self, subspace: &Pattern) -> Self {
         let mut conflicts = subspace.positive.clone();
         conflicts.retain_set(&subspace.negative);
-        return self.rewrite_cow(&|v, b| subspace.restrict_variable(v, b), &|p, b| {
+        self.rewrite_cow(&|v, b| subspace.restrict_variable(v, b), &|p, b| {
             p.restrict_with_conflicts(subspace, &conflicts, b)
-        });
+        })
+    }
+
+    #[cfg(feature = "pyo3")]
+    pub fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    pub fn __repr__(&self) -> String {
+        format!("{}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    pub fn __or__(&self, rhs: &PyAny) -> PyResult<Expr> {
+        Ok(self | extract_expr(rhs)?)
+    }
+
+    #[cfg(feature = "pyo3")]
+    pub fn __and__(&self, rhs: &PyAny) -> PyResult<Expr> {
+        Ok(self & extract_expr(rhs)?)
+    }
+
+    #[cfg(feature = "pyo3")]
+    pub fn __invert__(&self) -> Expr {
+        self.not()
     }
 }
 
@@ -410,17 +434,6 @@ impl fmt::Display for Operator {
     }
 }
 
-#[cfg(feature = "pyo3")]
-#[pyproto]
-impl PyObjectProtocol<'_> for Expr {
-    fn __str__(&self) -> String {
-        format!("{}", self)
-    }
-    fn __repr__(&self) -> String {
-        format!("{}", self)
-    }
-}
-
 impl Rule for Expr {
     fn fmt_with(&self, f: &mut dyn efmt::ExprFormatter) -> fmt::Result {
         self._fmt_expr(f, None)
@@ -520,38 +533,6 @@ impl<T: Into<Expr>> BitOr<T> for Variable {
     type Output = Expr;
     fn bitor(self, rhs: T) -> Self::Output {
         Operator::Or.join(Expr::from(self), rhs.into())
-    }
-}
-
-// Operator overloading to turn Variable into expressions literals
-#[cfg(feature = "pyo3")]
-#[pyproto]
-impl PyNumberProtocol for Variable {
-    fn __or__(lhs: Self, rhs: &PyAny) -> PyResult<Expr> {
-        Expr::__or__(Expr::from(lhs), rhs)
-    }
-
-    fn __and__(lhs: Self, rhs: &PyAny) -> PyResult<Expr> {
-        Expr::__and__(Expr::from(lhs), rhs)
-    }
-    fn __invert__(&self) -> Expr {
-        !Expr::from(*self)
-    }
-}
-
-#[cfg(feature = "pyo3")]
-#[pyproto]
-impl PyNumberProtocol for Expr {
-    fn __or__(lhs: Self, rhs: &PyAny) -> PyResult<Expr> {
-        Ok(lhs | extract_expr(rhs)?)
-    }
-
-    fn __and__(lhs: Self, rhs: &PyAny) -> PyResult<Expr> {
-        Ok(lhs & extract_expr(rhs)?)
-    }
-
-    fn __invert__(&self) -> Expr {
-        self.not()
     }
 }
 

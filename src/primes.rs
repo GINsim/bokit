@@ -10,7 +10,7 @@ use std::vec::IntoIter;
 use crate::efmt::ExprFormatter;
 use crate::expr::{ExprNode, Operator};
 #[cfg(feature = "pyo3")]
-use pyo3::{exceptions::PyValueError, prelude::*, PyObjectProtocol};
+use pyo3::{exceptions::PyValueError, prelude::*};
 
 /// Boolean function represented as a set of prime implicants.
 ///
@@ -110,6 +110,16 @@ impl Primes {
         let mut other = Primes::default();
         other.patterns.push_clear_subsumed(p);
         self.merge(&mut other);
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __repr__(&self) -> String {
+        format!("{}", self)
     }
 }
 
@@ -305,17 +315,6 @@ impl Rule for Primes {
 impl fmt::Display for Primes {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.patterns.fmt(f)
-    }
-}
-
-#[cfg(feature = "pyo3")]
-#[pyproto]
-impl PyObjectProtocol<'_> for Primes {
-    fn __str__(&self) -> String {
-        format!("{}", self)
-    }
-    fn __repr__(&self) -> String {
-        format!("{}", self)
     }
 }
 

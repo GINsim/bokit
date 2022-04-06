@@ -7,7 +7,7 @@ use std::fmt;
 use std::str::FromStr;
 
 #[cfg(feature = "pyo3")]
-use pyo3::{exceptions::PyValueError, prelude::*, PyMappingProtocol};
+use pyo3::{exceptions::PyValueError, prelude::*};
 
 static RE_UID: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^(_[01-9_]*)?[a-zA-Z][a-zA-Z01-9_]*$").unwrap());
@@ -338,6 +338,16 @@ impl VarSpace {
             Some(var) => Ok(*var),
         }
     }
+
+    #[cfg(feature = "pyo3")]
+    fn __len__(&self) -> usize {
+        self.len()
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __getitem__(&self, key: &str) -> PyResult<Variable> {
+        Ok(self.get_variable(key)?)
+    }
 }
 
 impl VarSpace {
@@ -472,17 +482,6 @@ impl<'a> IntoIterator for &'a VarSpace {
 
 impl fmt::Display for NamedRule<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.rule.fmt_named(f, &self.namer)
-    }
-}
-
-#[cfg(feature = "pyo3")]
-#[pyproto]
-impl PyMappingProtocol<'_> for VarSpace {
-    fn __len__(&self) -> usize {
-        self.len()
-    }
-    fn __getitem__(&self, key: &str) -> PyResult<Variable> {
-        Ok(self.get_variable(key)?)
+        self.rule.fmt_named(f, self.namer)
     }
 }

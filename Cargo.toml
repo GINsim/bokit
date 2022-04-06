@@ -10,7 +10,7 @@ edition     = "2021"
 [dependencies]
 bit-set     = "0.5"
 delegate    = "0.6"
-once_cell   = "1.8"
+once_cell   = "1.10"
 pest        = "2.1"
 pest_derive = "2.1"
 regex       = "1"
@@ -20,8 +20,8 @@ thiserror   = "1.0"
 
 [dependencies.pyo3]
 optional = true
-version  = "0.14"
-features = ["extension-module", "abi3", "abi3-py36"]
+version  = "0.16"
+features = ["extension-module", "abi3", "abi3-py39"]
 
 [lib]
 crate-type = ["rlib", "cdylib"]
