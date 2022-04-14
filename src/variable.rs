@@ -392,17 +392,17 @@ mod tests {
         assert_eq!(Variable::from_str("v1y2").is_err(), true);
 
         let mut varset = VarSpace::default();
-        let vtest = varset.add("test")?;
-        let valt = varset.add("alternative")?;
+        let vtest = varset.provide("test")?;
+        let valt = varset.provide("alternative")?;
 
-        assert_eq!(true, varset.add("3test").is_err());
-        assert_eq!(true, varset.add("te%t").is_err());
-        assert_eq!(vtest, varset.add("test")?);
+        assert_eq!(true, varset.provide("3test").is_err());
+        assert_eq!(true, varset.provide("te%t").is_err());
+        assert_eq!(vtest, varset.provide("test")?);
 
-        assert_eq!(vtest, varset.get_variable("test")?);
-        assert_eq!(valt, varset.get_variable("alternative")?);
+        assert_eq!(vtest, varset.get_or_err("test")?);
+        assert_eq!(valt, varset.get_or_err("alternative")?);
 
-        assert_eq!(true, varset.get_variable("pipo").is_err());
+        assert_eq!(true, varset.get("pipo").is_none());
 
         Ok(())
     }
@@ -410,11 +410,11 @@ mod tests {
     #[test]
     fn extract_state() -> Result<(), BokitError> {
         let mut variables = VarSpace::default();
-        let v1 = variables.add("A")?;
-        let v2 = variables.add("B")?;
-        let v3 = variables.add("C")?;
-        let v4 = variables.add("D")?;
-        let v5 = variables.add("E")?;
+        let v1 = variables.provide("A")?;
+        let v2 = variables.provide("B")?;
+        let v3 = variables.provide("C")?;
+        let v4 = variables.provide("D")?;
+        let v5 = variables.provide("E")?;
 
         let state = variables.get_state("A D E; B, D")?;
         assert_eq!(state.len_active(), 4);
@@ -425,9 +425,9 @@ mod tests {
         assert_eq!(state.is_active(v5), true);
 
         let mut varset = VarSpace::default();
-        varset.add("test")?;
-        varset.add("alternative")?;
-        varset.add("third")?;
+        varset.provide("test")?;
+        varset.provide("alternative")?;
+        varset.provide("third")?;
 
         let state = varset.get_state("test third")?;
         assert_eq!(2, state.len_active());
@@ -441,18 +441,18 @@ mod tests {
     fn uid_provider() -> Result<(), BokitError> {
         let mut uids = VarSpace::default();
 
-        let va = uids.add("a")?;
-        let vb = uids.add("b")?;
-        let vc = uids.add("c")?;
-        let vd = uids.add("d")?;
+        let va = uids.provide("a")?;
+        let vb = uids.provide("b")?;
+        let vc = uids.provide("c")?;
+        let vd = uids.provide("d")?;
 
         assert_eq!(va.uid(), 0);
         assert_eq!(vb.uid(), 1);
         assert_eq!(vc.uid(), 2);
         assert_eq!(vd.uid(), 3);
 
-        assert_eq!(uids.add("b")?, vb);
-        assert_eq!(uids.add("d")?, vd);
+        assert_eq!(uids.provide("b")?, vb);
+        assert_eq!(uids.provide("d")?, vd);
 
         assert_eq!(uids.len(), (&uids).into_iter().count());
         assert_eq!(uids.len(), 4);
@@ -466,7 +466,7 @@ mod tests {
         assert_eq!(uids.len(), (&uids).into_iter().count());
         assert_eq!(uids.len(), 2);
 
-        uids.add("e")?;
+        uids.provide("e")?;
         uids.remove_variable(vd);
         assert_eq!(uids.len(), (&uids).into_iter().count());
         assert_eq!(uids.len(), 2);
@@ -479,13 +479,13 @@ mod tests {
     fn components() -> Result<(), BokitError> {
         let mut uids = VarSpace::default();
 
-        let v0 = uids.add("a")?;
-        let v1 = uids.add("b")?;
+        let v0 = uids.provide("a")?;
+        let v1 = uids.provide("b")?;
         let v1_0 = uids.associate(v1, 0)?;
         let v1_2 = uids.associate(v1, 2)?;
         let v1_1 = uids.associate(v1, 1)?;
-        let v4 = uids.add("c")?;
-        let v5 = uids.add("d")?;
+        let v4 = uids.provide("c")?;
+        let v5 = uids.provide("d")?;
 
         assert_eq!(v0.uid(), 0);
         assert_eq!(v1.uid(), 1);
@@ -519,8 +519,8 @@ mod tests {
     fn check_rule() {
         let mut uids = VarSpace::default();
 
-        let v0 = uids.add("a").unwrap();
-        let v1 = uids.add("b").unwrap();
+        let v0 = uids.provide("a").unwrap();
+        let v1 = uids.provide("b").unwrap();
 
         let expr = v0 | v1;
         assert_eq!(uids.check_rule(&expr).is_ok(), true);

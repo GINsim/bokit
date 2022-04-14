@@ -345,10 +345,10 @@ mod tests {
     #[test]
     fn count_primes() -> Result<(), BokitError> {
         let mut variables = VarSpace::default();
-        let first = variables.add("first")?;
-        let test = variables.add("test")?;
-        let other = variables.add("other")?;
-        let myvar = variables.add("myvar")?;
+        let first = variables.provide("first")?;
+        let test = variables.provide("test")?;
+        let other = variables.provide("other")?;
+        let myvar = variables.provide("myvar")?;
 
         let e: Expr = (test | other) & true & ((!myvar | first) & test);
 

@@ -139,9 +139,9 @@
 //! # fn main() -> Result<(), BokitError> {
 //!
 //! let mut variables = VarSpace::default();
-//! let v1 = variables.add("A")?;
-//! let v2 = variables.add("B")?;
-//! let v3 = variables.add("C")?;
+//! let v1 = variables.provide("A")?;
+//! let v2 = variables.provide("B")?;
+//! let v3 = variables.provide("C")?;
 //!
 //! // Display a named variable
 //! assert_eq!( format!("{}", variables.named(&v2)), "B");
@@ -156,7 +156,7 @@
 //! println!("{}", variables.named(&expr));
 //!
 //! // The associated name can be changed
-//! variables.set_name(v2, "newName");
+//! variables.rename(v2, "newName");
 //! println!("{}", variables.named(&expr));
 //! # Ok(())
 //! # }
@@ -200,8 +200,6 @@ use pyo3::{prelude::*, types::PyModule, PyResult, Python};
 #[cfg(feature = "pyo3")]
 #[pymodule]
 fn bokit(_py: Python, m: &PyModule) -> PyResult<()> {
-    println!("Assembling the Pyo3 module...");
-
     m.add_class::<Variable>()?;
     m.add_class::<VarSet>()?;
     m.add_class::<VarList>()?;

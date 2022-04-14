@@ -562,9 +562,9 @@ mod tests {
         println!("{}", &e);
 
         let mut variables = VarSpace::default();
-        let test = variables.add("test")?;
-        let other = variables.add("other")?;
-        let myvar = variables.add("myvar")?;
+        let test = variables.provide("test")?;
+        let other = variables.provide("other")?;
+        let myvar = variables.provide("myvar")?;
 
         let e: Expr = (test | other) & true & (!myvar & test);
         println!();
@@ -581,11 +581,11 @@ mod tests {
     #[test]
     fn eval() -> Result<(), BokitError> {
         let mut variables = VarSpace::default();
-        let v1 = variables.add("A")?;
-        let v2 = variables.add("B")?;
-        let v3 = variables.add("C")?;
-        let v4 = variables.add("D")?;
-        let v5 = variables.add("E")?;
+        let v1 = variables.provide("A")?;
+        let v2 = variables.provide("B")?;
+        let v3 = variables.provide("C")?;
+        let v4 = variables.provide("D")?;
+        let v5 = variables.provide("E")?;
 
         let e = variables.parse_expression("(A & B) | (C & (D | !E))")?;
         let e2 = (v1 & v2) | (v3 & (v4 | !v5));
@@ -595,10 +595,10 @@ mod tests {
         let mut variables = VarSpace::default();
         let _e = variables.parse_expression_with_new_variables("(first & test) | other")?;
 
-        let first = variables.add("first")?;
-        let test = variables.add("test")?;
-        let other = variables.add("other")?;
-        let myvar = variables.add("myvar")?;
+        let first = variables.provide("first")?;
+        let test = variables.provide("test")?;
+        let other = variables.provide("other")?;
+        let myvar = variables.provide("myvar")?;
 
         let e: Expr = (test | other) & true & ((!myvar | first) & test);
 
@@ -617,8 +617,8 @@ mod tests {
         let e2 = vs.parse_expression_with_new_variables("A | (B & C)")?;
         let e3 = !&e2;
 
-        let var_b = vs.get_variable("B")?;
-        let var_d = vs.get_variable("D")?;
+        let var_b = vs.get_or_err("B")?;
+        let var_d = vs.get_or_err("D")?;
 
         let mut sub = Pattern::default();
         sub.set(var_d, false);

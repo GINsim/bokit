@@ -4,13 +4,14 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use slab::Slab;
 use std::fmt;
-use std::str::FromStr;
 
 #[cfg(feature = "pyo3")]
 use pyo3::{exceptions::PyValueError, prelude::*};
 
 static RE_UID: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^(_[01-9_]*)?[a-zA-Z][a-zA-Z01-9_]*$").unwrap());
+static RE_MV_UID: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^([a-zA-Z_][a-zA-Z01-9_]*)(?::([0-9]))?$").unwrap());
 
 /// Associate (group of) variables with their name in a collection.
 ///
@@ -55,7 +56,7 @@ pub enum Component<'a> {
 /// let mut variables = VarSpace::default();
 ///
 /// // Create a core variable and an associated one
-/// let v1 = variables.add("A")?;
+/// let v1 = variables.provide("A")?;
 /// let v1_1 = variables.associate(v1, 1)?;
 ///
 /// // Use any associated variable to retrieve a component describing the group
@@ -95,13 +96,13 @@ pub enum VariableBlock {
 }
 
 #[derive(Clone, Debug)]
-pub struct Subgroup {
+struct Subgroup {
     name: String,
     members: Vec<Variable>,
 }
 
 impl Subgroup {
-    pub fn new(name: String) -> Self {
+    fn new(name: String) -> Self {
         Self {
             name,
             members: Vec::default(),
@@ -113,7 +114,7 @@ impl Subgroup {
 impl VarSpace {
     #[cfg(feature = "pyo3")]
     #[new]
-    fn new_py() -> Self {
+    fn new() -> Self {
         Self::default()
     }
 
@@ -124,66 +125,10 @@ impl VarSpace {
     ///
     /// Returns an error if the name is invalid, in this case the collection is not modified.
     /// Panics if the new variable can not be created (usize or memory overflow).
-    pub fn add(&mut self, name: &str) -> Result<Variable, BokitError> {
-        if let Some(var) = self.name2uid.get(name) {
-            return Ok(*var);
-        }
-
-        // Reject invalid names
-        if !RE_UID.is_match(name) {
-            return Err(BokitError::InvalidName(name.into()));
-        }
-
-        // Create and insert the new block
-        let block = VariableBlock::Single(name.into());
-        let var = self.blocks.insert(block).into();
-        self.name2uid.insert(name.into(), var);
-        Ok(var)
-    }
-
-    /// Retrieve an associated variable, create it if needed.
-    ///
-    /// If the associated variable exists, return it without any change to the collection.
-    /// Otherwise, create and return the associated variable.
-    ///
-    /// Note that
-    /// * If the anchor variable is a single variable, it will become part of a subgroup.
-    /// * Any variable of a group can be used as anchor, the index is always a global index in the subgroup.
-    /// * Subgroups don't allow gaps: intermediate associated variables can be created to reach the desired index.
-    ///
-    /// Returns an error if the core variable is not part of the collection.
-    /// Panics if the new variable can not be created (usize or memory overflow)
-    pub fn associate(&mut self, v: Variable, idx: usize) -> Result<Variable, BokitError> {
-        match self.blocks.get(v.uid()) {
-            None => Err(BokitError::NoSuchVariable(v)),
-            Some(VariableBlock::Associated(gid, vid)) => {
-                if *vid == idx {
-                    return Ok(v);
-                }
-                let gid = *gid;
-                Ok(self._associate_to_group(gid, idx))
-            }
-            Some(VariableBlock::Single(name)) => {
-                if idx == 0 {
-                    return Ok(v);
-                }
-                let name = name.clone();
-                let gid = self._create_subgroup(name, v);
-                self.blocks[v.uid()] = VariableBlock::Associated(gid, 0);
-                Ok(self._associate_to_group(gid, idx))
-            }
-        }
-    }
-
-    /// Rename a variable identified by its old name and retrieve the corresponding Variable.
-    ///
-    /// Returns an error if the old name does not exist in the collection or if the new one is either
-    /// invalid or already associated to another variable. Renaming to the same name is accepted
-    /// (in this case, the collection is not changed)
-    pub fn rename(&mut self, old: &str, name: &str) -> Result<Variable, BokitError> {
-        let var = self.get_variable(old)?;
-        self.set_name(var, name)?;
-        Ok(var)
+    pub fn provide(&mut self, name: &str) -> Result<Variable, BokitError> {
+        let (name, level) = parse_name(name)?;
+        let var = self._provide_name(name);
+        self._provide_level(var, level.unwrap_or(0))
     }
 
     #[cfg(feature = "pyo3")]
@@ -208,96 +153,39 @@ impl VarSpace {
     /// Returns an error if the text is not a valid expression, and in particular
     /// if some variable names are invalid
     pub fn parse_expression_with_new_variables(&mut self, text: &str) -> Result<Expr, BokitError> {
-        parse::parse_expression(&mut |name| self.add(name), text)
+        parse::parse_expression(&mut |name| self.provide(name), text)
     }
 
     /// Parse an expression using variable names
     pub fn parse_expression(&self, text: &str) -> Result<Expr, BokitError> {
-        parse::parse_expression(&mut |name| self.get_variable(name), text)
+        parse::parse_expression(&mut |name| self.get_or_err(name), text)
     }
 
     pub fn parse_variables(&self, text: &str) -> Result<VarList, BokitError> {
-        VarList::parse(text, |n| self.get_variable(n))
+        VarList::parse(text, |n| self.get_or_err(n))
     }
 
     pub fn parse_new_variables(&mut self, text: &str) -> Result<VarList, BokitError> {
-        VarList::parse(text, |n| self.add(n))
+        VarList::parse(text, |n| self.provide(n))
     }
 
     /// Parse a list of implicants using named variables.
     ///
     /// The string should start with a header line defining the order of variables
     pub fn parse_implicants(&self, text: &str) -> Result<Implicants, BokitError> {
-        Implicants::parse_with_header(text, |n| self.get_variable(n))
+        Implicants::parse_with_header(text, |n| self.get_or_err(n))
     }
 
     pub fn parse_implicants_with_new_variables(
         &mut self,
         text: &str,
     ) -> Result<Implicants, BokitError> {
-        Implicants::parse_with_header(text, |n| self.add(n))
-    }
-
-    /// Get the number of assigned Variables
-    pub fn len(&self) -> usize {
-        self.blocks.len()
+        Implicants::parse_with_header(text, |n| self.provide(n))
     }
 
     /// Return whether there are no variables in this collection
     pub fn is_empty(&self) -> bool {
         self.blocks.is_empty()
-    }
-
-    /// Remove a given variable.
-    ///
-    /// This operation does not fail as it ignored variable which are not part of the collection
-    pub fn remove_variable(&mut self, var: Variable) {
-        if !self.blocks.contains(var.uid()) {
-            return;
-        }
-        // Free the slot, if it contained a variable do some additional cleanup
-        match self.blocks.remove(var.uid()) {
-            VariableBlock::Single(name) => {
-                self.name2uid.remove(&name);
-            }
-            VariableBlock::Associated(gid, idx) => {
-                self._remove_from_group(gid, idx);
-            }
-        }
-    }
-
-    /// Assign a new name to a variable.
-    ///
-    /// Returns an error if the variable is not part of the collection or if the new name
-    /// is either invalid or already associated to another variable.
-    pub fn set_name(&mut self, v: Variable, name: &str) -> Result<(), BokitError> {
-        if !self.contains(v) {
-            return Err(BokitError::NoSuchVariable(v));
-        }
-
-        // Reject invalid names
-        if !RE_UID.is_match(name) {
-            return Err(BokitError::InvalidName(name.into()));
-        }
-
-        // Detect conflicts or unchanged names
-        if let Ok(existing) = self.get_variable(name) {
-            if existing == v {
-                return Ok(());
-            }
-            return Err(BokitError::ConflictingName(String::from(name)));
-        }
-
-        // All consistency checks passed, do the actual update
-        let old_name = match &mut self.blocks[v.uid()] {
-            VariableBlock::Single(s) => s,
-            VariableBlock::Associated(gid, _) => &mut self.groups[*gid].name,
-        };
-
-        self.name2uid.insert(name.into(), v);
-        self.name2uid.remove(old_name);
-        *old_name = name.into();
-        Ok(())
     }
 
     /// Check if a variable is part of the collection
@@ -323,19 +211,40 @@ impl VarSpace {
             if name.is_empty() {
                 continue;
             }
-            state.activate(self.get_variable(name)?);
+            state.activate(self.get_or_err(name)?);
         }
         Ok(state)
     }
+    /// Search a variable with the given name
+    pub fn get_or_err(&self, name: &str) -> Result<Variable, BokitError> {
+        match self.get(name) {
+            None => Err(BokitError::NoSuchVariableName(name.into())),
+            Some(v) => Ok(v),
+        }
+    }
 
     /// Search a variable with the given name
-    pub fn get_variable(&self, name: &str) -> Result<Variable, BokitError> {
-        match self.name2uid.get(name) {
-            None => match Variable::from_str(name) {
-                Ok(v) => Ok(v),
-                Err(_) => Err(BokitError::NoSuchVariableName(String::from(name))),
-            },
-            Some(var) => Ok(*var),
+    pub fn get(&self, name: &str) -> Option<Variable> {
+        let (name, level) = parse_name(name).ok()?;
+        let var = self.name2uid.get(name)?;
+        let idx = level.unwrap_or(0);
+        match self.blocks.get(var.uid()) {
+            None => None,
+            Some(VariableBlock::Associated(gid, vid)) => {
+                if *vid == idx {
+                    return Some(*var);
+                }
+                let gid = *gid;
+                let grp = self.groups.get(gid).unwrap();
+                grp.members.get(idx).copied()
+            }
+            Some(VariableBlock::Single(_)) => {
+                if idx == 0 {
+                    Some(*var)
+                } else {
+                    None
+                }
+            }
         }
     }
 
@@ -345,12 +254,126 @@ impl VarSpace {
     }
 
     #[cfg(feature = "pyo3")]
-    fn __getitem__(&self, key: &str) -> PyResult<Variable> {
-        Ok(self.get_variable(key)?)
+    fn __getitem__(&self, key: &str) -> Option<Variable> {
+        self.get(key)
     }
 }
 
 impl VarSpace {
+    /// Get the number of assigned Variables
+    pub fn len(&self) -> usize {
+        self.blocks.len()
+    }
+
+    fn _provide_name(&mut self, name: &str) -> Variable {
+        if let Some(var) = self.name2uid.get(name) {
+            return *var;
+        }
+
+        // Create and insert the new block
+        let block = VariableBlock::Single(name.into());
+        let var = self.blocks.insert(block).into();
+        self.name2uid.insert(name.into(), var);
+        var
+    }
+
+    /// Retrieve an associated variable, create it if needed.
+    ///
+    /// If the associated variable exists, return it without any change to the collection.
+    /// Otherwise, create and return the associated variable.
+    ///
+    /// Note that
+    /// * If the anchor variable is a single variable, it will become part of a subgroup.
+    /// * Any variable of a group can be used as anchor, the index is always a global index in the subgroup.
+    /// * Subgroups don't allow gaps: intermediate associated variables can be created to reach the desired index.
+    ///
+    /// Returns an error if the core variable is not part of the collection.
+    /// Panics if the new variable can not be created (usize or memory overflow)
+    pub fn associate<V: IntoVariable>(&mut self, v: V, idx: usize) -> Result<Variable, BokitError> {
+        let v = v.variable(self).ok_or(BokitError::InvalidExpression)?;
+        self._provide_level(v, idx)
+    }
+
+    fn _provide_level(&mut self, v: Variable, idx: usize) -> Result<Variable, BokitError> {
+        match self.blocks.get(v.uid()) {
+            None => Err(BokitError::NoSuchVariable(v)),
+            Some(VariableBlock::Associated(gid, vid)) => {
+                if *vid == idx {
+                    return Ok(v);
+                }
+                let gid = *gid;
+                Ok(self._associate_to_group(gid, idx))
+            }
+            Some(VariableBlock::Single(name)) => {
+                if idx == 0 {
+                    return Ok(v);
+                }
+                let name = name.clone();
+                let gid = self._create_subgroup(name, v);
+                self.blocks[v.uid()] = VariableBlock::Associated(gid, 0);
+                Ok(self._associate_to_group(gid, idx))
+            }
+        }
+    }
+
+    /// Remove a given variable.
+    ///
+    /// This operation does not fail as it ignored variable which are not part of the collection
+    pub fn remove_variable<V: IntoVariable>(&mut self, var: V) {
+        let var = match var.variable(self) {
+            None => return,
+            Some(v) => v,
+        };
+        if !self.blocks.contains(var.uid()) {
+            return;
+        }
+        // Free the slot, if it contained a variable do some additional cleanup
+        match self.blocks.remove(var.uid()) {
+            VariableBlock::Single(name) => {
+                self.name2uid.remove(&name);
+            }
+            VariableBlock::Associated(gid, idx) => {
+                self._remove_from_group(gid, idx);
+            }
+        }
+    }
+
+    /// Rename a variable identified by its old name and retrieve the corresponding Variable.
+    ///
+    /// Returns an error if the old name does not exist in the collection or if the new one is either
+    /// invalid or already associated to another variable. Renaming to the same name is accepted
+    /// (in this case, the collection is not changed)
+    pub fn rename<V: IntoVariable>(&mut self, v: V, name: &str) -> Result<Variable, BokitError> {
+        let v = v.variable(self).ok_or(BokitError::InvalidExpression)?;
+        if !self.contains(v) {
+            return Err(BokitError::NoSuchVariable(v));
+        }
+
+        // Reject invalid names
+        if !RE_UID.is_match(name) {
+            return Err(BokitError::InvalidName(name.into()));
+        }
+
+        // Detect conflicts or unchanged names
+        if let Some(existing) = self.get(name) {
+            if existing == v {
+                return Ok(v);
+            }
+            return Err(BokitError::ConflictingName(String::from(name)));
+        }
+
+        // All consistency checks passed, do the actual update
+        let old_name = match &mut self.blocks[v.uid()] {
+            VariableBlock::Single(s) => s,
+            VariableBlock::Associated(gid, _) => &mut self.groups[*gid].name,
+        };
+
+        self.name2uid.insert(name.into(), v);
+        self.name2uid.remove(old_name);
+        *old_name = name.into();
+        Ok(v)
+    }
+
     /// Check if all variables are part of this collection
     pub fn contains_all<T: IntoIterator<Item = Variable>>(&self, col: T) -> bool {
         !col.into_iter().any(|v| !self.contains(v))
@@ -471,6 +494,34 @@ impl VarSpace {
     }
 }
 
+fn parse_name(name: &str) -> Result<(&str, Option<usize>), BokitError> {
+    let cap = RE_MV_UID
+        .captures(name)
+        .ok_or(BokitError::InvalidExpression)?;
+    let name = cap
+        .get(1)
+        .ok_or(BokitError::InvalidExpression)
+        .map(|g1| g1.as_str())?;
+    let level = cap.get(2).map(|m| m.as_str().parse().unwrap());
+    Ok((name, level))
+}
+
+pub trait IntoVariable {
+    fn variable(&self, space: &VarSpace) -> Option<Variable>;
+}
+
+impl IntoVariable for Variable {
+    fn variable(&self, _: &VarSpace) -> Option<Variable> {
+        Some(*self)
+    }
+}
+
+impl IntoVariable for &str {
+    fn variable(&self, space: &VarSpace) -> Option<Variable> {
+        space.get(self)
+    }
+}
+
 impl<'a> IntoIterator for &'a VarSpace {
     type Item = Variable;
     type IntoIter = Box<dyn Iterator<Item = Variable> + 'a>;
@@ -483,5 +534,29 @@ impl<'a> IntoIterator for &'a VarSpace {
 impl fmt::Display for NamedRule<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.rule.fmt_named(f, self.namer)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::space::parse_name;
+    use crate::*;
+
+    #[test]
+    fn name_parsing() -> Result<(), BokitError> {
+        let mut vs = VarSpace::default();
+        assert_eq!(vs.provide("test")?.uid(), 0);
+
+        assert!(parse_name("pi po").is_err());
+
+        let (name, level) = parse_name("pipo")?;
+        assert_eq!(name, "pipo");
+        assert!(level.is_none());
+
+        let (name, level) = parse_name("test:2")?;
+        assert_eq!(name, "test");
+        assert_eq!(level.unwrap(), 2);
+
+        Ok(())
     }
 }
