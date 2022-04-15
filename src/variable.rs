@@ -1,10 +1,9 @@
 //! Implementation for variables and their naming in rules
 
+use crate::parse::VariableParser;
 use crate::*;
 
 use bit_set::BitSet;
-use once_cell::sync::Lazy;
-use regex::Regex;
 use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
@@ -14,10 +13,6 @@ use crate::error::ParseError;
 #[cfg(feature = "pyo3")]
 use pyo3::prelude::*;
 use std::ops::Not;
-
-static RE_GENERIC_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*_?([01-9]+)_?\s*$").unwrap());
-
-static _NAME_SEPARATORS: [char; 3] = [' ', ',', ';'];
 
 /// A single Boolean variable with an integer UID.
 ///
@@ -114,14 +109,7 @@ impl FromStr for Variable {
     type Err = BokitError;
 
     fn from_str(name: &str) -> Result<Self, Self::Err> {
-        if let Some(cap) = RE_GENERIC_NAME.captures(name) {
-            let uid: usize = cap.get(1).unwrap().as_str().parse().unwrap();
-            return Ok(Variable::from(uid));
-        }
-        Err(BokitError::from(ParseError::SimpleParseError(
-            name.to_string(),
-            "Variable",
-        )))
+        parse::parser().parse_variable(name)
     }
 }
 
@@ -185,17 +173,6 @@ impl VarList {
         self.varlist.push(var);
         Ok(())
     }
-
-    pub fn parse<F: FnMut(&str) -> Result<Variable, BokitError>>(
-        text: &str,
-        mut f: F,
-    ) -> Result<Self, BokitError> {
-        let mut result = VarList::default();
-        for name in text.split(&_NAME_SEPARATORS[..]).filter(|n| !n.is_empty()) {
-            result.push(f(name)?)?;
-        }
-        Ok(result)
-    }
 }
 
 // These functions can not be directly mapped to Python methods
@@ -208,6 +185,10 @@ impl VarSet {
     /// Create an iterator over the contained variables
     pub fn iter(&self) -> Iter {
         self.into_iter()
+    }
+
+    pub fn parse(text: &str) -> Result<Self, BokitError> {
+        parse::parser().parse_variable_set(text)
     }
 }
 
@@ -278,6 +259,11 @@ impl VarSet {
     #[cfg(feature = "pyo3")]
     fn __repr__(&self) -> String {
         format!("{:?}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __len__(&self) -> usize {
+        self.len()
     }
 }
 
@@ -378,7 +364,7 @@ impl<'a> IntoIterator for &'a VarSet {
 
 #[cfg(test)]
 mod tests {
-    use crate::*;
+    use crate::{parse::VariableParser, *};
     use core::str::FromStr;
 
     #[test]
@@ -416,7 +402,7 @@ mod tests {
         let v4 = variables.provide("D")?;
         let v5 = variables.provide("E")?;
 
-        let state = variables.get_state("A D E; B, D")?;
+        let state = variables.parse_state("A D E; B, D")?;
         assert_eq!(state.len_active(), 4);
         assert_eq!(state.is_active(v1), true);
         assert_eq!(state.is_active(v2), true);
@@ -429,7 +415,7 @@ mod tests {
         varset.provide("alternative")?;
         varset.provide("third")?;
 
-        let state = varset.get_state("test third")?;
+        let state = varset.parse_state("test third")?;
         assert_eq!(2, state.len_active());
         assert_eq!(true, state.is_active(Variable(0)));
         assert_eq!(true, state.is_active(Variable(2)));
@@ -457,17 +443,17 @@ mod tests {
         assert_eq!(uids.len(), (&uids).into_iter().count());
         assert_eq!(uids.len(), 4);
 
-        uids.remove_variable(vc);
-        uids.remove_variable(va);
+        uids.remove(vc);
+        uids.remove(va);
         assert_eq!(uids.len(), (&uids).into_iter().count());
         assert_eq!(uids.len(), 2);
 
-        uids.remove_variable(vc);
+        uids.remove(vc);
         assert_eq!(uids.len(), (&uids).into_iter().count());
         assert_eq!(uids.len(), 2);
 
         uids.provide("e")?;
-        uids.remove_variable(vd);
+        uids.remove(vd);
         assert_eq!(uids.len(), (&uids).into_iter().count());
         assert_eq!(uids.len(), 2);
 
@@ -481,9 +467,9 @@ mod tests {
 
         let v0 = uids.provide("a")?;
         let v1 = uids.provide("b")?;
-        let v1_0 = uids.associate(v1, 0)?;
-        let v1_2 = uids.associate(v1, 2)?;
-        let v1_1 = uids.associate(v1, 1)?;
+        let v1_0 = uids.provide("b:0")?;
+        let v1_2 = uids.provide("b:2")?;
+        let v1_1 = uids.provide("b:1")?;
         let v4 = uids.provide("c")?;
         let v5 = uids.provide("d")?;
 
@@ -500,13 +486,13 @@ mod tests {
         assert_eq!(format!("{}", uids.named(&v1)), "b:0");
         assert_eq!(format!("{}", uids.named(&v1_2)), "b:2");
 
-        uids.remove_variable(v1_1);
+        uids.remove(v1_1);
         assert_eq!(uids.into_iter().count(), 5);
         assert_eq!(uids.iter_components().count(), 4);
         assert_eq!(format!("{}", uids.named(&v1)), "b:0");
         assert_eq!(format!("{}", uids.named(&v1_2)), "b:1");
 
-        uids.remove_variable(v1);
+        uids.remove(v1);
         assert_eq!(uids.into_iter().count(), 4);
         assert_eq!(uids.iter_components().count(), 4);
 

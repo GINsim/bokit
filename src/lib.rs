@@ -135,7 +135,7 @@
 //!
 //! ```
 //! use bokit::VarSpace;
-//! # use bokit::BokitError;
+//! # use bokit::*;
 //! # fn main() -> Result<(), BokitError> {
 //!
 //! let mut variables = VarSpace::default();
@@ -156,7 +156,7 @@
 //! println!("{}", variables.named(&expr));
 //!
 //! // The associated name can be changed
-//! variables.rename(v2, "newName");
+//! variables.set_name(v2, "newName");
 //! println!("{}", variables.named(&expr));
 //! # Ok(())
 //! # }
@@ -187,6 +187,7 @@ extern crate pest_derive;
 pub use error::BokitError;
 pub use expr::{Expr, Operator};
 pub use implicants::Implicants;
+pub use parse::VariableParser;
 pub use pattern::Pattern;
 pub use primes::Primes;
 pub use rules::{Rule, SomeRule};

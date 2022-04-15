@@ -1,5 +1,6 @@
+use crate::parse::VariableParser;
 use crate::variable::Iter;
-use crate::{BokitError, VarSet, Variable};
+use crate::{parse, BokitError, VarSet, Variable};
 use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
@@ -53,6 +54,10 @@ impl State {
     /// Create a new state without any active variable
     pub fn new() -> Self {
         Self::default()
+    }
+
+    pub fn parse(descr: &str) -> Result<Self, BokitError> {
+        parse::parser().parse_state(descr)
     }
 
     /// Iterate over the set of active variables

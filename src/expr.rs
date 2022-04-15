@@ -7,6 +7,7 @@ use std::borrow::{Borrow, Cow};
 use std::fmt::Debug;
 use std::str::FromStr;
 
+use crate::parse::VariableParser;
 use crate::*;
 
 #[cfg(feature = "pyo3")]
@@ -371,7 +372,7 @@ impl FromStr for Expr {
     type Err = BokitError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        parse::parse_expression(&mut Variable::from_str, s)
+        parse::parser().parse_expression(s)
     }
 }
 
@@ -539,7 +540,7 @@ impl<T: Into<Expr>> BitOr<T> for Variable {
 #[cfg(test)]
 mod tests {
 
-    use crate::*;
+    use crate::{parse::VariableParser, *};
 
     #[test]
     fn construct_and_display() -> Result<(), BokitError> {
@@ -593,7 +594,8 @@ mod tests {
         assert_eq!(e, e2);
 
         let mut variables = VarSpace::default();
-        let _e = variables.parse_expression_with_new_variables("(first & test) | other")?;
+        variables.set_auto_extend(true);
+        let _e = variables.parse_expression("(first & test) | other")?;
 
         let first = variables.provide("first")?;
         let test = variables.provide("test")?;
@@ -602,10 +604,10 @@ mod tests {
 
         let e: Expr = (test | other) & true & ((!myvar | first) & test);
 
-        assert_eq!(false, e.eval(&variables.get_state("other")?));
-        assert_eq!(true, e.eval(&variables.get_state("test")?));
-        assert_eq!(false, e.eval(&variables.get_state("myvar test")?));
-        assert_eq!(true, e.eval(&variables.get_state("myvar test first")?));
+        assert_eq!(false, e.eval(&variables.parse_state("other")?));
+        assert_eq!(true, e.eval(&variables.parse_state("test")?));
+        assert_eq!(false, e.eval(&variables.parse_state("myvar test")?));
+        assert_eq!(true, e.eval(&variables.parse_state("myvar test first")?));
 
         Ok(())
     }
@@ -613,9 +615,11 @@ mod tests {
     #[test]
     fn restrict_subspace() -> Result<(), BokitError> {
         let mut vs = VarSpace::default();
-        let e1 = vs.parse_expression_with_new_variables("A | !(B & C) | D")?;
-        let e2 = vs.parse_expression_with_new_variables("A | (B & C)")?;
+        vs.set_auto_extend(true);
+        let e1 = vs.parse_expression("A | !(B & C) | D")?;
+        let e2 = vs.parse_expression("A | (B & C)")?;
         let e3 = !&e2;
+        vs.set_auto_extend(false);
 
         let var_b = vs.get_or_err("B")?;
         let var_d = vs.get_or_err("D")?;

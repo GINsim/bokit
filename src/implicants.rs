@@ -46,19 +46,6 @@ impl Implicants {
         result
     }
 
-    /// Parse a list of implicants with a header line defining a custom variable order
-    ///
-    /// This method uses a closure to map variable names to actual variables, then
-    /// delegates the actual parsing to [Self::parse_with_variables].
-    pub fn parse_with_header<F: FnMut(&str) -> Result<Variable, BokitError>>(
-        descr: &str,
-        f: F,
-    ) -> Result<Self, BokitError> {
-        let sep = descr.find('\n').ok_or(BokitError::InvalidExpression)?;
-        let variables = VarList::parse(&descr[..sep], f)?;
-        Self::parse_with_variables(&descr[sep..], &variables)
-    }
-
     /// Parse a list of implicants using a custom variable order
     pub fn parse_with_variables(descr: &str, variables: &VarList) -> Result<Self, BokitError> {
         split_patterns(descr)
