@@ -208,11 +208,10 @@ mod tests {
     #[test]
     fn extract_variable() -> Result<(), BokitError> {
         let mut vs = VarSpace::default();
-        vs.set_auto_extend(true);
-        let expr = vs.parse_expression("A | (B & C)")?;
-        let e1 = vs.parse_expression("A | B & C")?;
-        let e2 = vs.parse_expression("A & (B | C)")?;
-        let e3 = vs.parse_expression("A & B | C")?;
+        let expr = vs.extend().parse_expression("A | (B & C)")?;
+        let e1 = vs.extend().parse_expression("A | B & C")?;
+        let e2 = vs.extend().parse_expression("A & (B | C)")?;
+        let e3 = vs.extend().parse_expression("A & B | C")?;
 
         println!("{}", &expr);
         println!("{}", &e1);
@@ -222,7 +221,7 @@ mod tests {
         println!();
         println!("NAMED: {}", vs.named(&expr));
 
-        let expr = vs.parse_expression("A & (D | (!C | B))")?;
+        let expr = vs.extend().parse_expression("A & (D | (!C | B))")?;
         let fr = efmt::PrefixFormatted(&expr);
         println!("prefixed: {}", &fr);
 

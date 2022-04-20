@@ -29,18 +29,18 @@ pub trait VariableParser {
     fn parse_variable(&mut self, s: &str) -> Result<Variable, BokitError>;
 
     fn parse_variable_set(&mut self, s: &str) -> Result<VarSet, BokitError> {
-        let mut result = VarSet::default();
-        for name in s.split(&_NAME_SEPARATORS[..]).filter(|n| !n.is_empty()) {
-            result.insert(self.parse_variable(name)?);
-        }
-        Ok(result)
+        s.split(&_NAME_SEPARATORS[..])
+            .filter(|n| !n.is_empty())
+            .map(|n| self.parse_variable(n))
+            .collect()
     }
 
     fn parse_variable_list(&mut self, s: &str) -> Result<VarList, BokitError> {
         let mut result = VarList::default();
-        for name in s.split(&_NAME_SEPARATORS[..]).filter(|n| !n.is_empty()) {
-            result.push(self.parse_variable(name)?)?;
-        }
+        s.split(&_NAME_SEPARATORS[..])
+            .filter(|n| !n.is_empty())
+            .map(|n| self.parse_variable(n))
+            .try_for_each(|v| result.push(v?))?;
         Ok(result)
     }
 

@@ -39,6 +39,10 @@ pub struct Pattern {
 }
 
 impl Pattern {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
     /// Create a pattern from the two inner sets of fixed variables
     pub fn with(positive: VarSet, negative: VarSet) -> Self {
         Self { positive, negative }

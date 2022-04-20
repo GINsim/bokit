@@ -6,7 +6,11 @@ use slab::Slab;
 use std::fmt;
 
 #[cfg(feature = "pyo3")]
-use pyo3::{exceptions::PyValueError, prelude::*};
+use pyo3::{
+    exceptions::PyValueError,
+    prelude::*,
+    types::{PyDict, PyTuple},
+};
 
 static RE_UID: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^(_[01-9_]*)?[a-zA-Z][a-zA-Z01-9_]*$").unwrap());
@@ -78,9 +82,13 @@ pub struct VarSpace {
 
     /// Find a variable by name
     name2uid: HashMap<String, Variable>,
+}
 
-    /// auto create variables when parsing
-    auto_extend: bool,
+pub struct ExtendVarSpace<'a> {
+    varspace: &'a mut VarSpace,
+}
+pub struct FrozenVarSpace<'a> {
+    varspace: &'a mut VarSpace,
 }
 
 /// A named rule associates a rule to a variable collection to provide prettier display output
@@ -145,6 +153,14 @@ impl VarSpace {
             return Ok(format!("{}", self.named(&v)));
         }
 
+        if let Ok(s) = obj.extract::<Implicants>() {
+            return Ok(format!("{}", self.named(&s)));
+        }
+
+        if let Ok(s) = obj.extract::<Pattern>() {
+            return Ok(format!("{}", self.named(&s)));
+        }
+
         Err(PyValueError::new_err(format!(
             "Don't know how to display type '{}'. Expected: variable handle or expression",
             obj.get_type().name()?
@@ -174,8 +190,28 @@ impl VarSpace {
 
     #[cfg(feature = "pyo3")]
     #[pyo3(name = "parse_expression")]
-    pub fn parse_expression_py(&mut self, s: &str) -> Result<Expr, BokitError> {
-        self.parse_expression(s)
+    pub fn parse_expression_py(
+        &mut self,
+        s: &str,
+        extend: Option<bool>,
+    ) -> Result<Expr, BokitError> {
+        self.as_parser(extend.unwrap_or(false)).parse_expression(s)
+    }
+
+    #[cfg(feature = "pyo3")]
+    #[pyo3(name = "parse_state")]
+    pub fn parse_state_py(&mut self, s: &str, extend: Option<bool>) -> Result<State, BokitError> {
+        self.as_parser(extend.unwrap_or(false)).parse_state(s)
+    }
+
+    #[cfg(feature = "pyo3")]
+    #[pyo3(name = "parse_implicants")]
+    pub fn parse_implicants_py(
+        &mut self,
+        s: &str,
+        extend: Option<bool>,
+    ) -> Result<Implicants, BokitError> {
+        self.as_parser(extend.unwrap_or(false)).parse_implicants(s)
     }
 
     /// Search a variable with the given name
@@ -187,15 +223,31 @@ impl VarSpace {
     }
 
     /// Search a variable with the given name
+    pub fn get_associated_or_err(
+        &self,
+        var: Variable,
+        level: usize,
+    ) -> Result<Variable, BokitError> {
+        match self.get_associated(var, level) {
+            None => Err(BokitError::InvalidExpression),
+            Some(v) => Ok(v),
+        }
+    }
+
+    /// Search a variable with the given name
     pub fn get(&self, name: &str) -> Option<Variable> {
         let (name, level) = parse_name(name).ok()?;
         let var = self.name2uid.get(name)?;
         let idx = level.unwrap_or(0);
+        self.get_associated(*var, idx)
+    }
+
+    pub fn get_associated(&self, var: Variable, idx: usize) -> Option<Variable> {
         match self.blocks.get(var.uid()) {
             None => None,
             Some(VariableBlock::Associated(gid, vid)) => {
                 if *vid == idx {
-                    return Some(*var);
+                    return Some(var);
                 }
                 let gid = *gid;
                 let grp = self.groups.get(gid).unwrap();
@@ -203,7 +255,7 @@ impl VarSpace {
             }
             Some(VariableBlock::Single(_)) => {
                 if idx == 0 {
-                    Some(*var)
+                    Some(var)
                 } else {
                     None
                 }
@@ -269,10 +321,6 @@ impl VarSpace {
         Ok(v)
     }
 
-    pub fn set_auto_extend(&mut self, b: bool) {
-        self.auto_extend = b;
-    }
-
     #[cfg(feature = "pyo3")]
     fn __len__(&self) -> usize {
         self.len()
@@ -281,6 +329,24 @@ impl VarSpace {
     #[cfg(feature = "pyo3")]
     fn __getitem__(&self, key: &str) -> Option<Variable> {
         self.get(key)
+    }
+
+    #[cfg(feature = "pyo3")]
+    #[args(py_args = "*")]
+    fn get_state(&self, py_args: &PyTuple) -> PyResult<State> {
+        self._varset_from_args(None, py_args).map(|v| v.into())
+    }
+
+    #[cfg(feature = "pyo3")]
+    #[args(py_args = "*")]
+    fn get_variables(&self, py_args: &PyTuple) -> PyResult<VarList> {
+        self._varlist_from_args(None, py_args)
+    }
+
+    #[cfg(feature = "pyo3")]
+    #[args(kwargs = "**")]
+    fn get_pattern(&self, kwargs: Option<&PyDict>) -> PyResult<Pattern> {
+        self._pattern_from_kwargs(None, kwargs)
     }
 }
 
@@ -458,6 +524,90 @@ impl VarSpace {
         }
         Ok(())
     }
+
+    pub fn extend(&mut self) -> ExtendVarSpace {
+        ExtendVarSpace { varspace: self }
+    }
+
+    pub fn as_parser(&mut self, extend: bool) -> Box<dyn VariableParser + '_> {
+        match extend {
+            true => Box::new(ExtendVarSpace { varspace: self }),
+            false => Box::new(FrozenVarSpace { varspace: self }),
+        }
+    }
+
+    #[cfg(feature = "pyo3")]
+    /// Build a state based on a list of active components
+    fn _varset_from_args(&self, result: Option<VarSet>, py_args: &PyTuple) -> PyResult<VarSet> {
+        let mut result = result.unwrap_or_default();
+        for v in py_args.iter() {
+            let s: &str = v.extract()?;
+            let var = self.get_or_err(s)?;
+            result.insert(var);
+        }
+        Ok(result)
+    }
+
+    #[cfg(feature = "pyo3")]
+    /// Build a list of variables based on a list of active components
+    fn _varlist_from_args(&self, result: Option<VarList>, py_args: &PyTuple) -> PyResult<VarList> {
+        let mut result = result.unwrap_or_default();
+        for v in py_args.iter() {
+            let s: &str = v.extract()?;
+            let var = self.get_or_err(s)?;
+            result.push(var)?;
+        }
+        Ok(result)
+    }
+
+    #[cfg(feature = "pyo3")]
+    /// Build a pattern composing constraints given as arguments
+    fn _pattern_from_kwargs(
+        &self,
+        result: Option<Pattern>,
+        kwargs: Option<&PyDict>,
+    ) -> PyResult<Pattern> {
+        let mut result = result.unwrap_or_default();
+        if kwargs.is_none() {
+            return Ok(result);
+        }
+
+        let kwargs = kwargs.unwrap();
+        for (k, v) in kwargs.iter() {
+            let s: &str = k.extract()?;
+            let var = self.get_or_err(s)?;
+
+            if let Ok(b) = v.extract::<bool>() {
+                result.set(var, b);
+                continue;
+            }
+            if let Ok(u) = v.extract::<usize>() {
+                match u {
+                    0 => result.set(var, false),
+                    1 => result.set(var, true),
+                    _ => {
+                        let var = self.get_associated_or_err(var, u)?;
+                        result.set(var, true);
+                    }
+                }
+                continue;
+            }
+
+            return Err(PyValueError::new_err(format!(
+                "Could not recognize the value '{}' associated to variable '{}'",
+                v, s
+            )));
+        }
+
+        Ok(result)
+    }
+
+    fn _fix_multivalued_state(&self, _state: &mut State) {
+        // FIXME: check that all groups are well defined
+    }
+    fn _fix_multivalued_pattern(&self, _pattern: &mut Pattern) {
+        // FIXME: check that all groups are well defined
+    }
 }
 
 fn parse_name(name: &str) -> Result<(&str, Option<usize>), BokitError> {
@@ -489,10 +639,19 @@ impl fmt::Display for NamedRule<'_> {
 
 impl VariableParser for VarSpace {
     fn parse_variable(&mut self, s: &str) -> Result<Variable, BokitError> {
-        match self.auto_extend {
-            true => self.provide(s),
-            false => self.get_or_err(s),
-        }
+        self.get_or_err(s)
+    }
+}
+
+impl VariableParser for FrozenVarSpace<'_> {
+    fn parse_variable(&mut self, s: &str) -> Result<Variable, BokitError> {
+        self.varspace.get_or_err(s)
+    }
+}
+
+impl VariableParser for ExtendVarSpace<'_> {
+    fn parse_variable(&mut self, s: &str) -> Result<Variable, BokitError> {
+        self.varspace.provide(s)
     }
 }
 

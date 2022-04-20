@@ -10,6 +10,7 @@ use std::str::FromStr;
 
 use crate::efmt::ExprFormatter;
 use crate::error::ParseError;
+use crate::wrap_py::{PyIterable, PyIterator};
 #[cfg(feature = "pyo3")]
 use pyo3::prelude::*;
 use std::ops::Not;
@@ -163,6 +164,13 @@ impl VarList {
         self.varlist.iter()
     }
 
+    pub fn len(&self) -> usize {
+        self.varlist.len()
+    }
+}
+
+#[cfg_attr(feature = "pyo3", pymethods)]
+impl VarList {
     pub fn push(&mut self, var: Variable) -> Result<(), BokitError> {
         if self.varset.contains(var) {
             // TODO: error duplicate variable
@@ -172,6 +180,90 @@ impl VarList {
         self.varset.insert(var);
         self.varlist.push(var);
         Ok(())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.varlist.is_empty()
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __len__(&self) -> usize {
+        self.len()
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __iter__(slf: Py<Self>, py: Python) -> PyResult<PyObject> {
+        Ok(VariableIterator::from_py(slf, py).into_py(py))
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[pyclass(unsendable)]
+struct VariableIterator(PyIterator<VarList, Variable>);
+
+#[cfg(feature = "pyo3")]
+impl VariableIterator {
+    fn from_py(data: Py<VarList>, py: Python) -> Self {
+        VariableIterator(PyIterator::from_py(data, py))
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[pyclass(unsendable)]
+struct VariableSetIterator(PyIterator<VarSet, Variable>);
+
+#[cfg(feature = "pyo3")]
+impl VariableSetIterator {
+    fn from_py(data: Py<VarSet>, py: Python) -> Self {
+        VariableSetIterator(PyIterator::from_py(data, py))
+    }
+}
+
+#[cfg(feature = "pyo3")]
+impl PyIterable<Variable> for VarList {
+    fn pyiter(&self) -> Box<dyn Iterator<Item = Variable> + '_> {
+        Box::new(self.iter().copied())
+    }
+}
+
+#[cfg(feature = "pyo3")]
+impl PyIterable<Variable> for VarSet {
+    fn pyiter(&self) -> Box<dyn Iterator<Item = Variable> + '_> {
+        Box::new(self.iter())
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[pymethods]
+impl VariableIterator {
+    fn __next__(&mut self) -> Option<Variable> {
+        self.0.next()
+    }
+
+    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
+        slf
+    }
+}
+
+#[cfg(feature = "pyo3")]
+#[pymethods]
+impl VariableSetIterator {
+    fn __next__(&mut self) -> Option<Variable> {
+        self.0.next()
+    }
+
+    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
+        slf
     }
 }
 
@@ -265,6 +357,11 @@ impl VarSet {
     fn __len__(&self) -> usize {
         self.len()
     }
+
+    #[cfg(feature = "pyo3")]
+    fn __iter__(slf: Py<Self>, py: Python) -> PyResult<PyObject> {
+        Ok(VariableSetIterator::from_py(slf, py).into_py(py))
+    }
 }
 
 impl From<BitSet> for VarSet {
@@ -293,7 +390,7 @@ impl AsMut<BitSet> for VarSet {
 
 impl FromIterator<Variable> for VarSet {
     fn from_iter<I: IntoIterator<Item = Variable>>(iter: I) -> Self {
-        let mut vs = VarSet::default();
+        let mut vs = Self::default();
         vs.extend(iter);
         vs
     }
@@ -301,15 +398,13 @@ impl FromIterator<Variable> for VarSet {
 
 impl Extend<Variable> for VarSet {
     fn extend<T: IntoIterator<Item = Variable>>(&mut self, iter: T) {
-        for v in iter {
-            self.insert(v);
-        }
+        iter.into_iter().for_each(|v| self.insert(v));
     }
 }
 
 impl fmt::Display for VarSet {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let mut first = false;
+        let mut first = true;
         write!(f, "{{")?;
         for v in self {
             match first {
@@ -319,6 +414,21 @@ impl fmt::Display for VarSet {
             write!(f, "{}", v.uid())?;
         }
         write!(f, "}}")
+    }
+}
+
+impl fmt::Display for VarList {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut first = true;
+        write!(f, "(")?;
+        for v in &self.varlist {
+            match first {
+                true => first = false,
+                false => write!(f, ", ")?,
+            }
+            write!(f, "{}", v.uid())?;
+        }
+        write!(f, ")")
     }
 }
 

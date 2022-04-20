@@ -594,8 +594,9 @@ mod tests {
         assert_eq!(e, e2);
 
         let mut variables = VarSpace::default();
-        variables.set_auto_extend(true);
-        let _e = variables.parse_expression("(first & test) | other")?;
+        let _e = variables
+            .extend()
+            .parse_expression("(first & test) | other")?;
 
         let first = variables.provide("first")?;
         let test = variables.provide("test")?;
@@ -615,11 +616,9 @@ mod tests {
     #[test]
     fn restrict_subspace() -> Result<(), BokitError> {
         let mut vs = VarSpace::default();
-        vs.set_auto_extend(true);
-        let e1 = vs.parse_expression("A | !(B & C) | D")?;
-        let e2 = vs.parse_expression("A | (B & C)")?;
+        let e1 = vs.extend().parse_expression("A | !(B & C) | D")?;
+        let e2 = vs.extend().parse_expression("A | (B & C)")?;
         let e3 = !&e2;
-        vs.set_auto_extend(false);
 
         let var_b = vs.get_or_err("B")?;
         let var_d = vs.get_or_err("D")?;
