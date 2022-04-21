@@ -10,7 +10,8 @@ use std::str::FromStr;
 
 use crate::efmt::ExprFormatter;
 use crate::error::ParseError;
-use crate::wrap_py::{PyIterable, PyIterator};
+#[cfg(feature = "pyo3")]
+use crate::pyborrowed::{borrow_iterator, BoxedPyIterator};
 #[cfg(feature = "pyo3")]
 use pyo3::prelude::*;
 use std::ops::Not;
@@ -202,68 +203,8 @@ impl VarList {
     }
 
     #[cfg(feature = "pyo3")]
-    fn __iter__(slf: Py<Self>, py: Python) -> PyResult<PyObject> {
-        Ok(VariableIterator::from_py(slf, py).into_py(py))
-    }
-}
-
-#[cfg(feature = "pyo3")]
-#[pyclass(unsendable)]
-struct VariableIterator(PyIterator<VarList, Variable>);
-
-#[cfg(feature = "pyo3")]
-impl VariableIterator {
-    fn from_py(data: Py<VarList>, py: Python) -> Self {
-        VariableIterator(PyIterator::from_py(data, py))
-    }
-}
-
-#[cfg(feature = "pyo3")]
-#[pyclass(unsendable)]
-struct VariableSetIterator(PyIterator<VarSet, Variable>);
-
-#[cfg(feature = "pyo3")]
-impl VariableSetIterator {
-    fn from_py(data: Py<VarSet>, py: Python) -> Self {
-        VariableSetIterator(PyIterator::from_py(data, py))
-    }
-}
-
-#[cfg(feature = "pyo3")]
-impl PyIterable<Variable> for VarList {
-    fn pyiter(&self) -> Box<dyn Iterator<Item = Variable> + '_> {
-        Box::new(self.iter().copied())
-    }
-}
-
-#[cfg(feature = "pyo3")]
-impl PyIterable<Variable> for VarSet {
-    fn pyiter(&self) -> Box<dyn Iterator<Item = Variable> + '_> {
-        Box::new(self.iter())
-    }
-}
-
-#[cfg(feature = "pyo3")]
-#[pymethods]
-impl VariableIterator {
-    fn __next__(&mut self) -> Option<Variable> {
-        self.0.next()
-    }
-
-    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
-        slf
-    }
-}
-
-#[cfg(feature = "pyo3")]
-#[pymethods]
-impl VariableSetIterator {
-    fn __next__(&mut self) -> Option<Variable> {
-        self.0.next()
-    }
-
-    fn __iter__(slf: PyRef<Self>) -> PyRef<Self> {
-        slf
+    fn __iter__(slf: Py<Self>, py: Python) -> Option<BoxedPyIterator> {
+        borrow_iterator(py, slf, |v| v.iter().copied())
     }
 }
 
@@ -359,8 +300,8 @@ impl VarSet {
     }
 
     #[cfg(feature = "pyo3")]
-    fn __iter__(slf: Py<Self>, py: Python) -> PyResult<PyObject> {
-        Ok(VariableSetIterator::from_py(slf, py).into_py(py))
+    fn __iter__(slf: Py<Self>, py: Python) -> Option<BoxedPyIterator> {
+        borrow_iterator(py, slf, |v| v.iter())
     }
 }
 

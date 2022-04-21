@@ -170,6 +170,8 @@ mod implicants;
 mod parse;
 mod pattern;
 mod primes;
+#[cfg(feature = "pyo3")]
+pub mod pyborrowed;
 mod rules;
 mod space;
 mod states;
@@ -213,47 +215,4 @@ fn bokit(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Implicants>()?;
     m.add_class::<Primes>()?;
     Ok(())
-}
-
-#[cfg(feature = "pyo3")]
-pub mod wrap_py {
-
-    use ouroboros::self_referencing;
-    use pyo3::{IntoPy, Py, PyAny, PyClass, PyRef, Python};
-
-    /// Wrap an iterable Python object and its iterator together
-    /// to work around lifetime limitations in Python-exported objects
-    #[self_referencing(pub_extras)]
-    pub struct PyIterator<T: 'static + PyClass + PyIterable<I>, I: IntoPy<Py<PyAny>>> {
-        owned: Py<T>,
-        #[borrows(owned)]
-        #[covariant]
-        refcell: PyRef<'this, T>,
-        #[borrows(refcell)]
-        #[covariant]
-        it: Box<dyn Iterator<Item = I> + 'this>,
-    }
-
-    impl<T: PyClass + PyIterable<I>, I: IntoPy<Py<PyAny>>> PyIterator<T, I> {
-        pub(crate) fn from_py(owned: Py<T>, py: Python) -> Self {
-            PyIteratorBuilder {
-                owned,
-                refcell_builder: |o| {
-                    let pyref = o.borrow(py);
-                    let extended_ref: PyRef<'static, T> = unsafe { std::mem::transmute(pyref) };
-                    extended_ref
-                },
-                it_builder: |r| r.pyiter(),
-            }
-            .build()
-        }
-
-        pub(crate) fn next(&mut self) -> Option<I> {
-            self.with_mut(|f| f.it.next())
-        }
-    }
-
-    pub trait PyIterable<I: IntoPy<Py<PyAny>>> {
-        fn pyiter<'a>(&'a self) -> Box<dyn Iterator<Item = I> + 'a>;
-    }
 }

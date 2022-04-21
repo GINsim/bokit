@@ -6,6 +6,8 @@ use std::iter::FromIterator;
 use std::str::FromStr;
 
 #[cfg(feature = "pyo3")]
+use crate::pyborrowed::{borrow_iterator, BoxedPyIterator};
+#[cfg(feature = "pyo3")]
 use pyo3::prelude::*;
 
 /// A state defined as a set of active variables, the others are implicitly inactive.
@@ -112,6 +114,11 @@ impl State {
     #[cfg(feature = "pyo3")]
     fn __repr__(&self) -> String {
         format!("{:?}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn __iter__(slf: Py<Self>, py: Python) -> Option<BoxedPyIterator> {
+        borrow_iterator(py, slf, |v| v.iter_active())
     }
 }
 
