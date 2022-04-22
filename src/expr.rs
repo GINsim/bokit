@@ -161,6 +161,33 @@ impl Expr {
             }
         }
     }
+
+    pub fn _complexity_score(&self, parent_bool: bool) -> usize {
+        let b = self.value && parent_bool;
+        match &self.node {
+            ExprNode::Variable(_) => 1,
+            ExprNode::True => {
+                match b {
+                    true => 1,
+                    false => 0,
+                }
+            },
+            ExprNode::Pattern(p) => match b {
+                true => 1,
+                false => p.additional_len(),
+            },
+            ExprNode::Operation(o, children) => {
+                let c1 = children.0._complexity_score(b);
+                let c2 = children.1._complexity_score(b);
+                match (b, o) {
+                    (true, Operator::And) => c1 * c2,
+                    (false, Operator::Or) => c1 * c2,
+                    (true, Operator::Or) => c1 + c2,
+                    (false, Operator::And) => c1 + c2,
+                }
+            },
+        }
+    }
 }
 
 #[cfg_attr(feature = "pyo3", pymethods)]
@@ -192,6 +219,15 @@ impl Expr {
         self.rewrite_cow(&|v, b| subspace.restrict_variable(v, b), &|p, b| {
             p.restrict_with_conflicts(subspace, &conflicts, b)
         })
+    }
+
+    /// Estimated computational complexity of the expression.
+    /// This computes the maximal number of prime implicants needed
+    /// to cover this expression.
+    /// This estimate can be completely off when sub-expressions share some variables, but it
+    /// gives a reliable upper-bound.
+    pub fn complexity_score(&self) -> usize {
+        self._complexity_score(true)
     }
 
     #[cfg(feature = "pyo3")]

@@ -322,6 +322,10 @@ impl Pattern {
         vars.contains_set(&self.positive) && vars.contains_set(&self.negative)
     }
 
+    pub fn additional_len(&self) -> usize {
+        self.positive.len() + self.negative.len()
+    }
+
     #[cfg(feature = "pyo3")]
     fn __str__(&self) -> String {
         format!("{}", self)
