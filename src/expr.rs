@@ -166,11 +166,9 @@ impl Expr {
         let b = self.value && parent_bool;
         match &self.node {
             ExprNode::Variable(_) => 1,
-            ExprNode::True => {
-                match b {
-                    true => 1,
-                    false => 0,
-                }
+            ExprNode::True => match b {
+                true => 1,
+                false => 0,
             },
             ExprNode::Pattern(p) => match b {
                 true => 1,
@@ -185,7 +183,7 @@ impl Expr {
                     (true, Operator::Or) => c1 + c2,
                     (false, Operator::And) => c1 + c2,
                 }
-            },
+            }
         }
     }
 }
