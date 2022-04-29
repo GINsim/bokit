@@ -172,6 +172,7 @@ mod pattern;
 mod primes;
 #[cfg(feature = "pyo3")]
 pub mod pyborrowed;
+mod rctx;
 mod rules;
 mod space;
 mod states;

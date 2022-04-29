@@ -10,6 +10,7 @@ use std::str::FromStr;
 use crate::parse::VariableParser;
 use crate::*;
 
+use crate::rctx::CplxInfo;
 #[cfg(feature = "pyo3")]
 use pyo3::exceptions::PyValueError;
 
@@ -161,31 +162,6 @@ impl Expr {
             }
         }
     }
-
-    pub fn _complexity_score(&self, parent_bool: bool) -> usize {
-        let b = self.value && parent_bool;
-        match &self.node {
-            ExprNode::Variable(_) => 1,
-            ExprNode::True => match b {
-                true => 1,
-                false => 0,
-            },
-            ExprNode::Pattern(p) => match b {
-                true => 1,
-                false => p.additional_len(),
-            },
-            ExprNode::Operation(o, children) => {
-                let c1 = children.0._complexity_score(b);
-                let c2 = children.1._complexity_score(b);
-                match (b, o) {
-                    (true, Operator::And) => c1 * c2,
-                    (false, Operator::Or) => c1 * c2,
-                    (true, Operator::Or) => c1 + c2,
-                    (false, Operator::And) => c1 + c2,
-                }
-            }
-        }
-    }
 }
 
 #[cfg_attr(feature = "pyo3", pymethods)]
@@ -197,6 +173,11 @@ impl Expr {
             None => Ok(Expr::from(false)),
             Some(obj) => extract_expr(obj),
         }
+    }
+
+    #[cfg(feature = "pyo3")]
+    fn regulators(&self) -> VarSet {
+        self.get_regulators()
     }
 
     #[cfg(feature = "pyo3")]
@@ -220,12 +201,12 @@ impl Expr {
     }
 
     /// Estimated computational complexity of the expression.
-    /// This computes the maximal number of prime implicants needed
+    /// This computes the maximal number of implicants needed
     /// to cover this expression.
     /// This estimate can be completely off when sub-expressions share some variables, but it
     /// gives a reliable upper-bound.
-    pub fn complexity_score(&self) -> usize {
-        self._complexity_score(true)
+    pub fn complexity_score(&self) -> CplxInfo {
+        CplxInfo::from(self)
     }
 
     #[cfg(feature = "pyo3")]

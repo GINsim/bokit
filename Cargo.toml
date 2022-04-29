@@ -16,7 +16,6 @@ pest_derive = "2.1"
 regex       = "1"
 slab        = "0.4"
 thiserror   = "1.0"
-ouroboros = "0.15.0"
 
 
 [dependencies.pyo3]
