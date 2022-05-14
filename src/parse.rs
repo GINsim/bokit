@@ -52,7 +52,7 @@ pub trait VariableParser {
     /// Parse a list of implicants with a header line defining a custom variable order
     ///
     /// This method uses a closure to map variable names to actual variables, then
-    /// delegates the actual parsing to [Self::parse_with_variables].
+    /// delegates the actual parsing to [Implicants::parse_with_variables].
     fn parse_implicants(&mut self, s: &str) -> Result<Implicants, BokitError> {
         let sep = s.find('\n').ok_or(BokitError::InvalidExpression)?;
         let variables = self.parse_variable_list(&s[..sep])?;

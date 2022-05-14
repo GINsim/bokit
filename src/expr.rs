@@ -10,7 +10,7 @@ use std::str::FromStr;
 use crate::parse::VariableParser;
 use crate::*;
 
-use crate::rctx::CplxInfo;
+use crate::rctx::{ExprComplexity, ExprExpander};
 #[cfg(feature = "pyo3")]
 use pyo3::exceptions::PyValueError;
 
@@ -205,8 +205,14 @@ impl Expr {
     /// to cover this expression.
     /// This estimate can be completely off when sub-expressions share some variables, but it
     /// gives a reliable upper-bound.
-    pub fn complexity_score(&self) -> CplxInfo {
-        CplxInfo::from(self)
+    pub fn complexity_score(&self) -> ExprComplexity {
+        ExprComplexity::from(self)
+    }
+
+    /// Attempt to split the expression into a set of related expressions
+    /// to reduce the global estimated complexity
+    pub fn simplify(&self, penalty: Option<usize>) -> ExprExpander {
+        ExprExpander::with_opt_penalty(self, penalty)
     }
 
     #[cfg(feature = "pyo3")]
