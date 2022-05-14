@@ -169,11 +169,9 @@ impl ExprExpander {
                         if s1 > s2 {
                             e1 = Cow::Owned(Expr::from(self.extract_sub_expression(e1)));
                             s1 = 1;
-                            println!("Extract into {} (saved {})", e1, savings);
                         } else {
                             e2 = Cow::Owned(Expr::from(self.extract_sub_expression(e2)));
                             s2 = 1;
-                            println!("Extract into {} (saved {})", e2, savings);
                         }
                     }
                 }
