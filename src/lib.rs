@@ -163,6 +163,7 @@
 //! ```
 
 mod convert;
+mod decompose;
 pub mod efmt;
 mod error;
 mod expr;
@@ -172,7 +173,6 @@ mod pattern;
 mod primes;
 #[cfg(feature = "pyo3")]
 pub mod pyborrowed;
-mod rctx;
 mod rules;
 mod space;
 mod states;
@@ -187,6 +187,7 @@ use std::sync::Arc;
 extern crate pest_derive;
 
 // Export public structures and API
+pub use decompose::{DecomposedExpr, DecompositionReport};
 pub use error::BokitError;
 pub use expr::{Expr, Operator};
 pub use implicants::Implicants;
@@ -203,7 +204,7 @@ use pyo3::{prelude::*, types::PyModule, PyResult, Python};
 
 #[cfg(feature = "pyo3")]
 #[pymodule]
-fn bokit(_py: Python, m: &PyModule) -> PyResult<()> {
+pub fn bokit(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<Variable>()?;
     m.add_class::<VarSet>()?;
     m.add_class::<VarList>()?;

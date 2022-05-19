@@ -4,13 +4,13 @@ use core::ops::BitAnd;
 use core::ops::BitOr;
 use core::ops::Not;
 use std::borrow::{Borrow, Cow};
+use std::cmp::max;
 use std::fmt::Debug;
 use std::str::FromStr;
 
 use crate::parse::VariableParser;
 use crate::*;
 
-use crate::rctx::{ExprComplexity, ExprExpander};
 #[cfg(feature = "pyo3")]
 use pyo3::exceptions::PyValueError;
 
@@ -66,6 +66,15 @@ use pyo3::exceptions::PyValueError;
 pub struct Expr {
     pub(crate) value: bool,
     pub(crate) node: ExprNode,
+}
+
+/// Evaluate the complexity of unfolding implicants from an expression
+#[derive(Clone, Copy, Debug)]
+#[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
+pub struct ExprComplexity {
+    score: Option<usize>,
+    atoms: usize,
+    depth: usize,
 }
 
 /// A node in an expression tree
@@ -162,6 +171,62 @@ impl Expr {
             }
         }
     }
+
+    /// Propagate negations down the expression tree to obtain an equivalent NNF expression
+    ///
+    /// An expression is a NNF (Negation Normal Form) if all negations are on the atoms and not on operations.
+    /// For example, the expression ```A & (B | C)``` is a NNF, but its negation ```!(A & (B | C))``` isn't.
+    /// The NNF of the negation is ```!A | (!B & !C)```.
+    ///
+    /// Return a Cow object: borrow the existing expression if it is already a NNF.
+    pub fn nnf(&self) -> Cow<Self> {
+        self.build_nnf(true)
+    }
+
+    fn build_nnf(&self, parent_value: bool) -> Cow<Self> {
+        match &self.node {
+            ExprNode::True | ExprNode::Variable(_) | ExprNode::Pattern(_) => match parent_value {
+                true => Cow::Borrowed(self),
+                false => Cow::Owned(self.not()),
+            },
+            ExprNode::Operation(op, children) => {
+                let b = parent_value == self.value;
+                let c0 = children.0.build_nnf(b);
+                let c1 = children.1.build_nnf(b);
+                if parent_value && self.value {
+                    Self::forward_expr(Cow::Borrowed(self), *op, b, c0, c1)
+                } else {
+                    let children = Arc::new((c0.into_owned(), c1.into_owned()));
+                    let op = match (b, op) {
+                        (true, Operator::And) | (false, Operator::Or) => Operator::And,
+                        (true, Operator::Or) | (false, Operator::And) => Operator::Or,
+                    };
+                    Cow::Owned(Expr {
+                        value: true,
+                        node: ExprNode::Operation(op, children),
+                    })
+                }
+            }
+        }
+    }
+
+    pub(crate) fn forward_expr<'a>(
+        fwd: Cow<'a, Expr>,
+        op: Operator,
+        b: bool,
+        e1: Cow<'a, Expr>,
+        e2: Cow<'a, Expr>,
+    ) -> Cow<'a, Expr> {
+        if matches!((&e1, &e2), (Cow::Borrowed(_), Cow::Borrowed(_))) {
+            return fwd;
+        }
+
+        let children = Arc::new((e1.into_owned(), e2.into_owned()));
+        Cow::Owned(Expr {
+            value: b,
+            node: ExprNode::Operation(op, children),
+        })
+    }
 }
 
 #[cfg_attr(feature = "pyo3", pymethods)]
@@ -200,19 +265,28 @@ impl Expr {
         })
     }
 
+    #[cfg(feature = "pyo3")]
+    #[pyo3(name = "nnf")]
+    pub fn nnf_py(&self) -> Self {
+        self.nnf().into_owned()
+    }
+
+    /// Decompose the expression into a set of related expressions
+    /// if it reduces the estimated complexity.
+    ///
+    /// The optional penalty parameter (defaults to 100) controls the
+    /// threshold used to decide that a decomposition is useful.
+    pub fn decompose(&self, penalty: Option<usize>) -> (DecomposedExpr, DecompositionReport) {
+        DecomposedExpr::new(self, penalty.unwrap_or(100))
+    }
+
     /// Estimated computational complexity of the expression.
     /// This computes the maximal number of implicants needed
     /// to cover this expression.
     /// This estimate can be completely off when sub-expressions share some variables, but it
     /// gives a reliable upper-bound.
-    pub fn complexity_score(&self) -> ExprComplexity {
+    pub fn estimate_complexity(&self) -> ExprComplexity {
         ExprComplexity::from(self)
-    }
-
-    /// Attempt to split the expression into a set of related expressions
-    /// to reduce the global estimated complexity
-    pub fn simplify(&self, penalty: Option<usize>) -> ExprExpander {
-        ExprExpander::with_opt_penalty(self, penalty)
     }
 
     #[cfg(feature = "pyo3")]
@@ -238,6 +312,83 @@ impl Expr {
     #[cfg(feature = "pyo3")]
     pub fn __invert__(&self) -> Expr {
         self.not()
+    }
+}
+
+#[cfg_attr(feature = "pyo3", pymethods)]
+impl ExprComplexity {
+    #[cfg(feature = "pyo3")]
+    pub fn __str__(&self) -> String {
+        format!("{:?}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    pub fn __repr__(&self) -> String {
+        format!("{:?}", self)
+    }
+
+    pub fn score(&self) -> Option<usize> {
+        self.score
+    }
+    pub fn atoms(&self) -> usize {
+        self.atoms
+    }
+    pub fn depth(&self) -> usize {
+        self.depth
+    }
+}
+
+impl ExprComplexity {
+    fn new(score: usize, atoms: usize) -> Self {
+        Self {
+            score: Some(score),
+            depth: 1,
+            atoms,
+        }
+    }
+
+    /// Recursively estimate the complexity score, taking into account the parent negation.
+    /// * A false value has no complexity
+    /// * A single variable or a true value has a unitary complexity
+    /// * A conjunction has a multiplicative complexity
+    /// * A disjunction has an additive complexity
+    fn from_expr(e: &Expr, parent_bool: bool) -> Self {
+        let b = e.value && parent_bool;
+        match &e.node {
+            ExprNode::Variable(_v) => Self::new(1, 1),
+            ExprNode::True => Self::new(b as usize, 0),
+            ExprNode::Pattern(p) => {
+                let atoms = p.additional_len();
+                Self::new(if b { 1 } else { atoms }, atoms)
+            }
+            ExprNode::Operation(o, children) => {
+                let mut c1 = Self::from_expr(&children.0, b);
+                let c2 = Self::from_expr(&children.1, b);
+                match (b, o) {
+                    (true, Operator::And) | (false, Operator::Or) => c1.and(&c2),
+                    (true, Operator::Or) | (false, Operator::And) => c1.or(&c2),
+                };
+                c1
+            }
+        }
+    }
+
+    fn and(&mut self, o: &ExprComplexity) {
+        self.depth = 1 + max(self.depth, o.depth);
+        self.atoms += o.atoms;
+        self.score = match (self.score, o.score) {
+            (Some(s1), Some(s2)) => s1.checked_mul(s2),
+            _ => None,
+        };
+    }
+
+    fn or(&mut self, o: &ExprComplexity) {
+        self.depth = 1 + max(self.depth, o.depth);
+        self.atoms += o.atoms;
+        self.score = match (self.score, o.score) {
+            (Some(s1), Some(s2)) => s1.checked_add(s2),
+            _ => None,
+        };
     }
 }
 
@@ -440,10 +591,13 @@ impl From<Pattern> for Expr {
 
 impl From<Arc<Expr>> for Expr {
     fn from(r: Arc<Expr>) -> Self {
-        match Arc::<Expr>::try_unwrap(r) {
-            Ok(e) => e,
-            Err(r) => Expr::clone(&r),
-        }
+        Arc::try_unwrap(r).unwrap_or_else(|r| Expr::clone(&r))
+    }
+}
+
+impl From<&Expr> for ExprComplexity {
+    fn from(e: &Expr) -> Self {
+        Self::from_expr(e, true)
     }
 }
 
@@ -560,7 +714,6 @@ impl<T: Into<Expr>> BitOr<T> for Variable {
 
 #[cfg(test)]
 mod tests {
-
     use crate::{parse::VariableParser, *};
 
     #[test]
