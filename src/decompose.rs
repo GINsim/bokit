@@ -252,16 +252,15 @@ mod test {
         println!();
 
         println!("{:?}", e.clone().not().estimate_complexity());
-        let eexpr = e.not().decompose(penalty);
-        println!("{} => {}", eexpr, eexpr.expansion_score);
+        let (eexpr, _rep) = e.not().decompose(penalty);
         for (v, e) in eexpr.expansions.iter() {
             println!(
                 "{} -> {:?} ==> {} vs {:?} => {}",
                 v,
                 e.estimate_complexity(),
-                e.decompose(penalty).is_expanded(),
+                e.decompose(penalty).0.is_expanded(),
                 e.not().estimate_complexity(),
-                e.not().decompose(penalty).is_expanded()
+                e.not().decompose(penalty).0.is_expanded()
             );
         }
         // println!("{}", eexpr.count_prime_implicants());
