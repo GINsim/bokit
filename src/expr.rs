@@ -11,6 +11,7 @@ use std::str::FromStr;
 use crate::parse::VariableParser;
 use crate::*;
 
+use crate::decompose::{DecomposeReport, DecomposedExpr};
 #[cfg(feature = "pyo3")]
 use pyo3::exceptions::PyValueError;
 
@@ -276,7 +277,7 @@ impl Expr {
     ///
     /// The optional penalty parameter (defaults to 100) controls the
     /// threshold used to decide that a decomposition is useful.
-    pub fn decompose(&self, penalty: Option<usize>) -> (DecomposedExpr, DecompositionReport) {
+    pub fn decompose(&self, penalty: Option<usize>) -> (DecomposedExpr, DecomposeReport) {
         DecomposedExpr::new(self, penalty.unwrap_or(100))
     }
 
@@ -571,6 +572,11 @@ impl From<Variable> for Expr {
         Self::from(ExprNode::Variable(var))
     }
 }
+impl From<&Variable> for Expr {
+    fn from(var: &Variable) -> Self {
+        Self::from(*var)
+    }
+}
 
 impl From<Pattern> for Expr {
     fn from(p: Pattern) -> Self {
@@ -642,6 +648,18 @@ impl Rule for Expr {
                 children.1.collect_regulators(regulators);
             }
         }
+    }
+
+    fn as_expression(&self) -> Cow<Expr> {
+        Cow::Borrowed(self)
+    }
+
+    fn as_implicants(&self) -> Cow<Implicants> {
+        Cow::Owned(Implicants::from(self))
+    }
+
+    fn as_primes(&self) -> Cow<Primes> {
+        Cow::Owned(Primes::from(self))
     }
 }
 

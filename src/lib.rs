@@ -109,19 +109,13 @@
 //! # }
 //! ```
 //!
-//! # Conversions and abstract rules
+//! # Conversions between rule representations
 //!
 //! A rule represented as a list of implicants (primes or not) can be trivially converted into an expression,
 //! which gives a DNF (disjunctive Normal Form) of the rule. This conversion is straightforward and does not
 //! require complicated computations.
 //! A rule represented as an expression can be converted into its sets of prime implicants, however this conversion
 //! is more complex, especially if the expression is ill-formed or if the rule has a large number of (prime) implicants.
-//!
-//! The [SomeRule] enum represents a thin abstraction layer over these core data structures.
-//! The concrete data structures mentioned above can be wrapped into an abstract rule and abstract rules can be converted to the concrete formats.
-//! Note that this conversion will clone a concrete object if it was already in the desired type. This clone is cheap for expressions but can be
-//! expensive (in time and memory) for large lists of (prime) implicants. To avoid this extra cost, we can convert abstract rules into hybrid
-//! objects carrying a borrowed reference or an owned converted object using the standard [Copy-on-write](std::borrow::Cow) wrapper.
 //!
 //! # Collection of named variables
 //!
@@ -163,7 +157,7 @@
 //! ```
 
 mod convert;
-mod decompose;
+pub mod decompose;
 pub mod efmt;
 mod error;
 mod expr;
@@ -187,14 +181,13 @@ use std::sync::Arc;
 extern crate pest_derive;
 
 // Export public structures and API
-pub use decompose::{DecomposedExpr, DecompositionReport};
 pub use error::BokitError;
-pub use expr::{Expr, Operator};
+pub use expr::{Expr, ExprComplexity, Operator};
 pub use implicants::Implicants;
 pub use parse::VariableParser;
 pub use pattern::Pattern;
 pub use primes::Primes;
-pub use rules::{Rule, SomeRule};
+pub use rules::Rule;
 pub use space::{Component, VarSpace};
 pub use states::State;
 pub use variable::{VarList, VarSet, Variable};

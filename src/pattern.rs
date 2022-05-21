@@ -1,4 +1,5 @@
 use crate::*;
+use std::borrow::Cow;
 
 use std::fmt;
 use std::str::FromStr;
@@ -381,6 +382,18 @@ impl Rule for Pattern {
     fn collect_regulators(&self, regulators: &mut VarSet) {
         regulators.insert_set(&self.positive);
         regulators.insert_set(&self.negative);
+    }
+
+    fn as_expression(&self) -> Cow<Expr> {
+        Cow::Owned(Expr::from(self))
+    }
+
+    fn as_implicants(&self) -> Cow<Implicants> {
+        Cow::Owned(Implicants::from(Expr::from(self)))
+    }
+
+    fn as_primes(&self) -> Cow<Primes> {
+        Cow::Owned(Primes::from(Expr::from(self)))
     }
 }
 

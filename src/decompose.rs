@@ -4,8 +4,14 @@
 //! Decomposition can heavily reduce the complexity of some operations,
 //! e.g. to formulate a constraint-solving problem based on (prime) implicants.
 //!
+//! The approach imnplemented here is strongly related to the
+//! [estimation of implicant complexity](Expr::estimate_complexity) where
+//! a ```AND``` multiplies the complexity of its two children.
+//! Extracting the child with the highest complexity yields an overall additive
+//! complexity. A penalty parameter is used to control over-decomposition.
+//!
 //! Related work: tree decomposition in non-ground ASP programs
-//! https://www.dbai.tuwien.ac.at/research/project/lpopt/thesis.pdf
+//! <https://www.dbai.tuwien.ac.at/research/project/lpopt/thesis.pdf>
 
 use crate::expr::{Expr, ExprNode};
 use crate::*;
@@ -13,13 +19,31 @@ use std::borrow::Cow;
 use std::fmt::{Display, Formatter};
 use std::ops::Not;
 
-/// Explode complex expressions into a collection of related expressions
-/// to reduce the global size of the implicant covering.
+/// An expression decomposed into subexpressions to spread the implicant complexity.
+///
+/// This contains a main ("root") expression where some sub-expressions are replaced
+/// with dedicated variables.
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 pub struct DecomposedExpr {
-    expr: Expr,
-    expansions: HashMap<Variable, Expr>,
+    root: Expr,
+    associated: HashMap<Variable, Expr>,
+}
+
+/// The prime implicants of a rule decomposed using sub-rules
+///
+/// Some variables in the patterns of the ("root") implicants correspond to
+/// associated variables with their own set of prime implicants.
+#[derive(Clone, Debug)]
+#[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
+pub struct DecomposedPrimes {
+    root: Primes,
+    associated: HashMap<Variable, Primes>,
+}
+
+pub trait DecomposeHelper {
+    fn set_expr(&mut self, expr: &Expr);
+    fn pick_variable(&mut self) -> Variable;
 }
 
 struct DecompositionTracker {
@@ -30,9 +54,10 @@ struct DecompositionTracker {
     score: usize,
 }
 
+/// Overview of the estimated implicant complexity of a [DecomposedExpr]
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
-pub struct DecompositionReport {
+pub struct DecomposeReport {
     root_score: usize,
     sum_sub_score: usize,
 }
@@ -50,29 +75,35 @@ impl DecomposedExpr {
     }
 
     pub fn is_expanded(&self) -> bool {
-        !self.expansions.is_empty()
+        !self.associated.is_empty()
     }
 
     pub fn expansion_count(&self) -> usize {
-        self.expansions.len()
+        self.associated.len()
     }
 
-    pub fn count_prime_implicants(&self) -> usize {
-        let mut count = 0;
-        count += Primes::from_expr(&self.expr).len();
+    /// Compute the prime implicants of this system of expressions.
+    ///
+    /// Construct the corresponding system of prime implicants
+    pub fn to_primes(&self) -> DecomposedPrimes {
+        DecomposedPrimes::from(self)
+    }
 
-        for (_v, e) in self.expansions.iter() {
-            count += Primes::from_expr(e).len();
-        }
-        count
+    /// Merge this decomposition into a single expression.
+    ///
+    /// Note that due to automatic simplifications (especially the use of patterns),
+    /// the merged expression may differ from the original expression, but they
+    /// should still be very similar.
+    pub fn merge(&self) -> Expr {
+        self.merge_expression(&self.root).into_owned()
     }
 }
 
 impl DecomposedExpr {
-    pub(crate) fn new(e: &Expr, penalty: usize) -> (Self, DecompositionReport) {
+    pub(crate) fn new(e: &Expr, penalty: usize) -> (Self, DecomposeReport) {
         let mut slf = Self {
-            expr: e.clone(),
-            expansions: HashMap::new(),
+            root: e.clone(),
+            associated: HashMap::new(),
         };
 
         let e = e.nnf();
@@ -87,14 +118,72 @@ impl DecomposedExpr {
         let (e, score) = slf.explore(&e, true, &mut tracker);
         tracker.score = score;
         if let Cow::Owned(expr) = e {
-            slf.expr = expr;
+            slf.root = expr;
         }
 
         (slf, tracker.report())
     }
 
+    fn merge_expression<'a>(&self, expr: &'a Expr) -> Cow<'a, Expr> {
+        match &expr.node {
+            ExprNode::True => None,
+            ExprNode::Variable(v) => self.merge_variable(v, expr.value),
+            ExprNode::Pattern(p) => self.merge_pattern(p, expr.value),
+            ExprNode::Operation(op, children) => {
+                self.merge_operation(*op, &children.0, &children.1, expr.value)
+            }
+        }
+        .map_or_else(|| Cow::Borrowed(expr), Cow::Owned)
+    }
+
+    fn merge_variable(&self, var: &Variable, value: bool) -> Option<Expr> {
+        self.associated
+            .get(var)
+            .map(|e| if value { e.clone() } else { !e })
+    }
+
+    fn merge_pattern(&self, p: &Pattern, value: bool) -> Option<Expr> {
+        // TODO: is it worth reconstructing the pattern only if needed?
+        let mut core_expr = Expr::from(true);
+        let mut expanded_expr = Expr::from(true);
+        for (v, b) in p.iter_fixed_values() {
+            match (b, self.associated.get(&v)) {
+                (true, None) => core_expr = core_expr & v,
+                (false, None) => core_expr = core_expr & !v,
+                (true, Some(sub)) => expanded_expr = expanded_expr & sub,
+                (false, Some(sub)) => expanded_expr = expanded_expr & !sub,
+            }
+        }
+        if expanded_expr.node == ExprNode::True {
+            return None;
+        }
+        let result = core_expr & expanded_expr;
+        Some(if value { result } else { !result })
+    }
+
+    fn merge_operation(
+        &self,
+        op: Operator,
+        child0: &Expr,
+        child1: &Expr,
+        value: bool,
+    ) -> Option<Expr> {
+        let c0 = self.merge_expression(child0);
+        let c1 = self.merge_expression(child1);
+
+        if let (Cow::Borrowed(_), Cow::Borrowed(_)) = (&c0, &c1) {
+            return None;
+        }
+
+        let children = Arc::new((c0.into_owned(), c1.into_owned()));
+        Some(Expr {
+            value,
+            node: ExprNode::Operation(op, children),
+        })
+    }
+
     pub fn expansions(&self) -> &HashMap<Variable, Expr> {
-        &self.expansions
+        &self.associated
     }
 
     fn explore<'a>(
@@ -148,12 +237,46 @@ impl DecomposedExpr {
         } else {
             e.as_ref().not()
         };
-        self.expansions.insert(var, extracted);
+        self.associated.insert(var, extracted);
         if parent_bool {
             var.into()
         } else {
             var.not()
         }
+    }
+}
+
+#[cfg_attr(feature = "pyo3", pymethods)]
+impl DecomposedPrimes {
+    #[cfg(feature = "pyo3")]
+    pub fn __str__(&self) -> String {
+        format!("{}", self)
+    }
+
+    #[cfg(feature = "pyo3")]
+    pub fn __repr__(&self) -> String {
+        format!("{}", self)
+    }
+
+    pub fn is_expanded(&self) -> bool {
+        !self.associated.is_empty()
+    }
+
+    pub fn expansion_count(&self) -> usize {
+        self.associated.len()
+    }
+
+    pub fn total_len(&self) -> usize {
+        self.root.len() + self.associated.iter().map(|(_, p)| p.len()).sum::<usize>()
+    }
+}
+
+impl DecomposedPrimes {
+    pub fn associated(&self) -> &HashMap<Variable, Primes> {
+        &self.associated
+    }
+    pub fn root(&self) -> &Primes {
+        &self.root
     }
 }
 
@@ -168,8 +291,8 @@ impl DecompositionTracker {
         result
     }
 
-    fn report(&self) -> DecompositionReport {
-        DecompositionReport {
+    fn report(&self) -> DecomposeReport {
+        DecomposeReport {
             root_score: self.score,
             sum_sub_score: self.expansion_score,
         }
@@ -177,7 +300,7 @@ impl DecompositionTracker {
 }
 
 #[cfg_attr(feature = "pyo3", pymethods)]
-impl DecompositionReport {
+impl DecomposeReport {
     #[cfg(feature = "pyo3")]
     pub fn __str__(&self) -> String {
         format!("{:?}", self)
@@ -198,17 +321,80 @@ impl DecompositionReport {
 
 impl Display for DecomposedExpr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        if self.expansions.is_empty() {
-            return write!(f, "{}", &self.expr);
+        if self.associated.is_empty() {
+            return write!(f, "{}", &self.root);
         }
 
-        let root_expr = &self.expr;
+        let root_expr = &self.root;
         writeln!(f, "Expanded {}", root_expr)?;
-        for (v, e) in self.expansions.iter() {
+        for (v, e) in self.associated.iter() {
             writeln!(f, "  {} <- {}", v, e)?;
         }
 
         Ok(())
+    }
+}
+
+impl Display for DecomposedPrimes {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        if self.associated.is_empty() {
+            return write!(f, "{}", &self.root);
+        }
+
+        let root_expr = &self.root;
+        write!(f, "[[Expanded\nRoot: \n{}", root_expr)?;
+        for (v, e) in self.associated.iter() {
+            write!(f, "\nAssociated {}:\n{}", v, e)?;
+        }
+        writeln!(f, "]]")
+    }
+}
+
+impl From<&DecomposedExpr> for DecomposedPrimes {
+    fn from(dexpr: &DecomposedExpr) -> Self {
+        let root = Primes::from(&dexpr.root);
+        let associated = dexpr
+            .associated
+            .iter()
+            .map(|(v, e)| (*v, Primes::from(e)))
+            .collect();
+        Self { root, associated }
+    }
+}
+
+impl From<&DecomposedPrimes> for DecomposedExpr {
+    fn from(dprimes: &DecomposedPrimes) -> Self {
+        let root = Expr::from(&dprimes.root);
+        let associated = dprimes
+            .associated
+            .iter()
+            .map(|(v, e)| (*v, Expr::from(e)))
+            .collect();
+        Self { root, associated }
+    }
+}
+
+impl From<&Expr> for DecomposedPrimes {
+    fn from(expr: &Expr) -> Self {
+        let (dexpr, _) = expr.decompose(None);
+        DecomposedPrimes::from(&dexpr)
+    }
+}
+impl From<Expr> for DecomposedPrimes {
+    fn from(expr: Expr) -> Self {
+        let (dexpr, _) = expr.decompose(None);
+        DecomposedPrimes::from(&dexpr)
+    }
+}
+
+impl From<&Expr> for DecomposedExpr {
+    fn from(expr: &Expr) -> Self {
+        expr.decompose(None).0
+    }
+}
+impl From<Expr> for DecomposedExpr {
+    fn from(expr: Expr) -> Self {
+        expr.decompose(None).0
     }
 }
 
@@ -239,21 +425,9 @@ mod test {
 
         println!("{}", &e);
 
-        // let eexpr = e.simplify(penalty);
-        // println!("{:?}", e.complexity_score());
-        // println!("{}", eexpr);
-        // println!("{}", eexpr.expansion_score);
-        // for (v, e) in eexpr.expansions.iter() {
-        //     println!("{} -> {:?}", v, e.complexity_score());
-        // }
-        // println!("{}", eexpr.count_prime_implicants());
-        //
-        // println!();
-        println!();
-
         println!("{:?}", e.clone().not().estimate_complexity());
         let (eexpr, _rep) = e.not().decompose(penalty);
-        for (v, e) in eexpr.expansions.iter() {
+        for (v, e) in eexpr.associated.iter() {
             println!(
                 "{} -> {:?} ==> {} vs {:?} => {}",
                 v,
@@ -263,7 +437,6 @@ mod test {
                 e.not().decompose(penalty).0.is_expanded()
             );
         }
-        // println!("{}", eexpr.count_prime_implicants());
 
         Ok(())
     }

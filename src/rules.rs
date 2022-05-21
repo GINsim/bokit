@@ -1,7 +1,7 @@
 use crate::efmt::{ExprFormatter, InfixFormatter};
 use crate::{Expr, Implicants, Primes, State, VarSet, VarSpace};
+use std::borrow::Cow;
 use std::fmt;
-use std::fmt::Formatter;
 
 /// Common API for all Boolean rules.
 ///
@@ -34,51 +34,13 @@ pub trait Rule {
         self.collect_regulators(&mut regulators);
         regulators
     }
-}
 
-/// A rule defined in one of the available data structure.
-#[derive(Clone, Debug)]
-pub enum SomeRule {
-    /// List of implicants representing a DNF
-    Implicants(Implicants),
+    /// Borrow or convert the rule as an expression
+    fn as_expression(&self) -> Cow<Expr>;
 
-    /// List of implicants guaranteed to be prime, also representing a DNF
-    Primes(Primes),
+    /// Borrow or convert the rule as an implicant cover
+    fn as_implicants(&self) -> Cow<Implicants>;
 
-    /// Expression tree in free form
-    Expr(Expr),
-}
-
-impl SomeRule {
-    fn inner_rule(&self) -> &dyn Rule {
-        match self {
-            SomeRule::Expr(e) => e,
-            SomeRule::Implicants(i) => i,
-            SomeRule::Primes(p) => p,
-        }
-    }
-}
-
-impl Rule for SomeRule {
-    fn fmt_with(&self, f: &mut dyn ExprFormatter) -> fmt::Result {
-        self.inner_rule().fmt_with(f)
-    }
-
-    fn eval(&self, state: &State) -> bool {
-        self.inner_rule().eval(state)
-    }
-
-    fn collect_regulators(&self, regulators: &mut VarSet) {
-        self.inner_rule().collect_regulators(regulators)
-    }
-}
-
-impl fmt::Display for SomeRule {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            SomeRule::Expr(v) => write!(f, "{}", v),
-            SomeRule::Implicants(v) => write!(f, "{}", v),
-            SomeRule::Primes(v) => write!(f, "{}", v),
-        }
-    }
+    /// Borrow or convert the rule as a set of prime implicants
+    fn as_primes(&self) -> Cow<Primes>;
 }

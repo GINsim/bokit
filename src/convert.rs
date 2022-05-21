@@ -1,5 +1,4 @@
-use crate::{Expr, Implicants, Pattern, Primes, SomeRule, Variable};
-use std::borrow::Cow;
+use crate::{Expr, Implicants, Pattern, Primes};
 
 impl From<&Implicants> for Expr {
     fn from(patterns: &Implicants) -> Expr {
@@ -77,89 +76,5 @@ impl From<bool> for Implicants {
 impl From<bool> for Primes {
     fn from(value: bool) -> Self {
         Primes::from(Implicants::from(value))
-    }
-}
-
-impl From<Expr> for SomeRule {
-    fn from(e: Expr) -> Self {
-        SomeRule::Expr(e)
-    }
-}
-impl From<Implicants> for SomeRule {
-    fn from(i: Implicants) -> Self {
-        SomeRule::Implicants(i)
-    }
-}
-impl From<Primes> for SomeRule {
-    fn from(p: Primes) -> Self {
-        SomeRule::Primes(p)
-    }
-}
-impl From<Variable> for SomeRule {
-    fn from(v: Variable) -> Self {
-        SomeRule::Expr(v.into())
-    }
-}
-impl From<bool> for SomeRule {
-    fn from(b: bool) -> Self {
-        SomeRule::from(Expr::from(b))
-    }
-}
-
-impl From<&SomeRule> for Expr {
-    fn from(rule: &SomeRule) -> Self {
-        match rule {
-            SomeRule::Expr(e) => e.clone(),
-            SomeRule::Primes(p) => p.into(),
-            SomeRule::Implicants(i) => i.into(),
-        }
-    }
-}
-
-impl From<&SomeRule> for Implicants {
-    fn from(rule: &SomeRule) -> Self {
-        match rule {
-            SomeRule::Expr(e) => Self::from(e),
-            SomeRule::Primes(p) => Self::from(p),
-            SomeRule::Implicants(i) => i.clone(),
-        }
-    }
-}
-
-impl From<&SomeRule> for Primes {
-    fn from(rule: &SomeRule) -> Self {
-        match rule {
-            SomeRule::Expr(e) => Self::from(e),
-            SomeRule::Primes(p) => p.clone(),
-            SomeRule::Implicants(i) => Self::from(i),
-        }
-    }
-}
-
-impl<'a> From<&'a SomeRule> for Cow<'a, Expr> {
-    fn from(rule: &'a SomeRule) -> Self {
-        match rule {
-            SomeRule::Expr(b) => Cow::Borrowed(b),
-            _ => Cow::Owned(Expr::from(rule)),
-        }
-    }
-}
-
-impl<'a> From<&'a SomeRule> for Cow<'a, Primes> {
-    fn from(rule: &'a SomeRule) -> Self {
-        match rule {
-            SomeRule::Primes(b) => Cow::Borrowed(b),
-            _ => Cow::Owned(Primes::from(rule)),
-        }
-    }
-}
-
-impl<'a> From<&'a SomeRule> for Cow<'a, Implicants> {
-    fn from(rule: &'a SomeRule) -> Self {
-        match rule {
-            SomeRule::Implicants(b) => Cow::Borrowed(b),
-            SomeRule::Primes(b) => Cow::Borrowed(b.as_implicants()),
-            _ => Cow::Owned(Implicants::from(rule)),
-        }
     }
 }

@@ -2,6 +2,7 @@
 
 use crate::parse::VariableParser;
 use crate::*;
+use std::borrow::Cow;
 
 use bit_set::BitSet;
 use std::fmt;
@@ -98,6 +99,18 @@ impl Rule for Variable {
 
     fn collect_regulators(&self, regulators: &mut VarSet) {
         regulators.insert(*self);
+    }
+
+    fn as_expression(&self) -> Cow<Expr> {
+        Cow::Owned(Expr::from(self))
+    }
+
+    fn as_implicants(&self) -> Cow<Implicants> {
+        Cow::Owned(Implicants::from(Expr::from(self)))
+    }
+
+    fn as_primes(&self) -> Cow<Primes> {
+        Cow::Owned(Primes::from(Expr::from(self)))
     }
 }
 

@@ -1,4 +1,5 @@
 use crate::*;
+use std::borrow::Cow;
 
 use crate::implicants::covers_slice;
 use crate::tools::quick_partition;
@@ -308,6 +309,17 @@ impl Rule for Primes {
 
     fn collect_regulators(&self, regulators: &mut VarSet) {
         self.patterns.collect_regulators(regulators);
+    }
+    fn as_expression(&self) -> Cow<Expr> {
+        Cow::Owned(Expr::from(self))
+    }
+
+    fn as_implicants(&self) -> Cow<Implicants> {
+        Cow::Borrowed(&self.patterns)
+    }
+
+    fn as_primes(&self) -> Cow<Primes> {
+        Cow::Borrowed(self)
     }
 }
 

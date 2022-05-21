@@ -2,6 +2,7 @@
 
 use crate::*;
 use bit_set::BitSet;
+use std::borrow::Cow;
 use std::iter::FromIterator;
 use std::ops::{Index, IndexMut, Range};
 use std::slice::Iter;
@@ -478,6 +479,17 @@ impl Rule for Implicants {
         self.patterns
             .iter()
             .for_each(|p| p.collect_regulators(regulators));
+    }
+    fn as_expression(&self) -> Cow<Expr> {
+        Cow::Owned(Expr::from(self))
+    }
+
+    fn as_implicants(&self) -> Cow<Implicants> {
+        Cow::Borrowed(self)
+    }
+
+    fn as_primes(&self) -> Cow<Primes> {
+        Cow::Owned(Primes::from(self))
     }
 }
 
