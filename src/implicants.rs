@@ -10,6 +10,7 @@ use std::str::FromStr;
 use std::vec::IntoIter;
 
 use crate::efmt::ExprFormatter;
+use crate::variable::VariableCounter;
 #[cfg(feature = "pyo3")]
 use pyo3::{exceptions::PyValueError, prelude::*};
 
@@ -480,6 +481,13 @@ impl Rule for Implicants {
             .iter()
             .for_each(|p| p.collect_regulators(regulators));
     }
+
+    fn count_regulators(&self, regulators: &mut VariableCounter, value: bool) {
+        self.patterns
+            .iter()
+            .for_each(|p| p.count_regulators(regulators, value));
+    }
+
     fn as_expression(&self) -> Cow<Expr> {
         Cow::Owned(Expr::from(self))
     }

@@ -12,6 +12,7 @@ use crate::parse::VariableParser;
 use crate::*;
 
 use crate::decompose::{DecomposeReport, DecomposedExpr};
+use crate::variable::VariableCounter;
 #[cfg(feature = "pyo3")]
 use pyo3::exceptions::PyValueError;
 
@@ -646,6 +647,18 @@ impl Rule for Expr {
             ExprNode::Operation(_, children) => {
                 children.0.collect_regulators(regulators);
                 children.1.collect_regulators(regulators);
+            }
+        }
+    }
+
+    fn count_regulators(&self, regulators: &mut VariableCounter, value: bool) {
+        match &self.node {
+            ExprNode::True => (),
+            ExprNode::Variable(var) => regulators.push(*var, value == self.value),
+            ExprNode::Pattern(p) => regulators.push_pattern(p, value == self.value),
+            ExprNode::Operation(_, children) => {
+                children.0.count_regulators(regulators, value == self.value);
+                children.1.count_regulators(regulators, value == self.value);
             }
         }
     }

@@ -101,6 +101,19 @@ impl DecomposedExpr {
 
 impl DecomposedExpr {
     pub(crate) fn new(e: &Expr, penalty: usize) -> (Self, DecomposeReport) {
+        let cplx = e.estimate_complexity().score().unwrap_or(usize::MAX);
+        if cplx > 500 {
+            return (
+                DecomposedExpr {
+                    root: e.clone(),
+                    associated: HashMap::default(),
+                },
+                DecomposeReport {
+                    root_score: cplx,
+                    sum_sub_score: 0,
+                },
+            );
+        }
         let mut slf = Self {
             root: e.clone(),
             associated: HashMap::new(),

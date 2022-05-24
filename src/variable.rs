@@ -28,6 +28,11 @@ use std::ops::Not;
 #[derive(Clone, Copy, Default, Debug, Eq, Hash, PartialEq)]
 pub struct Variable(pub(crate) usize);
 
+#[derive(Clone, Default, Debug)]
+pub struct VariableCounter {
+    counts: HashMap<Variable, (usize, usize)>,
+}
+
 impl Variable {
     /// Create a new variable with a specific UID
     pub fn new(uid: usize) -> Self {
@@ -101,6 +106,10 @@ impl Rule for Variable {
         regulators.insert(*self);
     }
 
+    fn count_regulators(&self, regulators: &mut VariableCounter, value: bool) {
+        regulators.push(*self, value);
+    }
+
     fn as_expression(&self) -> Cow<Expr> {
         Cow::Owned(Expr::from(self))
     }
@@ -111,6 +120,23 @@ impl Rule for Variable {
 
     fn as_primes(&self) -> Cow<Primes> {
         Cow::Owned(Primes::from(Expr::from(self)))
+    }
+}
+
+impl VariableCounter {
+    pub fn push_pattern(&mut self, p: &Pattern, value: bool) {
+        for (var, val) in p.iter_fixed_values() {
+            self.push(var, val == value);
+        }
+    }
+
+    pub fn push(&mut self, var: Variable, value: bool) {
+        let mut v = self.counts.entry(var).or_insert_with(|| (0, 0));
+        if value {
+            v.1 += 1;
+        } else {
+            v.0 += 1;
+        }
     }
 }
 
@@ -428,6 +454,7 @@ impl<'a> IntoIterator for &'a VarSet {
 
 #[cfg(test)]
 mod tests {
+    use crate::variable::VariableCounter;
     use crate::{parse::VariableParser, *};
     use core::str::FromStr;
 
@@ -593,5 +620,20 @@ mod tests {
         let primes = Primes::from(&expr);
         assert_eq!(uids.check_rule(&expr).is_ok(), false);
         assert_eq!(uids.check_rule(&primes).is_ok(), true);
+    }
+
+    #[test]
+    fn counter() {
+        let mut counter = VariableCounter::default();
+
+        counter.push(Variable(3), true);
+        counter.push(Variable(5), true);
+        counter.push(Variable(3), true);
+        counter.push(Variable(7), false);
+        counter.push(Variable(7), true);
+
+        assert_eq!(None, counter.counts.get(&Variable(1)));
+        assert_eq!(Some(&(0, 2)), counter.counts.get(&Variable(3)));
+        assert_eq!(Some(&(1, 1)), counter.counts.get(&Variable(7)));
     }
 }

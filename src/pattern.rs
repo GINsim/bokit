@@ -5,6 +5,7 @@ use std::fmt;
 use std::str::FromStr;
 
 use crate::efmt::ExprFormatter;
+use crate::variable::VariableCounter;
 #[cfg(feature = "pyo3")]
 use pyo3::prelude::*;
 use std::ops::Not;
@@ -382,6 +383,10 @@ impl Rule for Pattern {
     fn collect_regulators(&self, regulators: &mut VarSet) {
         regulators.insert_set(&self.positive);
         regulators.insert_set(&self.negative);
+    }
+
+    fn count_regulators(&self, regulators: &mut VariableCounter, value: bool) {
+        regulators.push_pattern(self, value);
     }
 
     fn as_expression(&self) -> Cow<Expr> {

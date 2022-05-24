@@ -10,6 +10,7 @@ use std::vec::IntoIter;
 
 use crate::efmt::ExprFormatter;
 use crate::expr::{ExprNode, Operator};
+use crate::variable::VariableCounter;
 #[cfg(feature = "pyo3")]
 use pyo3::{exceptions::PyValueError, prelude::*};
 
@@ -310,6 +311,11 @@ impl Rule for Primes {
     fn collect_regulators(&self, regulators: &mut VarSet) {
         self.patterns.collect_regulators(regulators);
     }
+
+    fn count_regulators(&self, regulators: &mut VariableCounter, value: bool) {
+        self.patterns.count_regulators(regulators, value)
+    }
+
     fn as_expression(&self) -> Cow<Expr> {
         Cow::Owned(Expr::from(self))
     }

@@ -1,4 +1,5 @@
 use crate::efmt::{ExprFormatter, InfixFormatter};
+use crate::variable::VariableCounter;
 use crate::{Expr, Implicants, Primes, State, VarSet, VarSpace};
 use std::borrow::Cow;
 use std::fmt;
@@ -27,6 +28,16 @@ pub trait Rule {
 
     /// Add all regulators to the set of variables
     fn collect_regulators(&self, regulators: &mut VarSet);
+
+    /// Count the occurences of all regulators
+    fn get_regulator_counts(&self) -> VariableCounter {
+        let mut result = VariableCounter::default();
+        self.count_regulators(&mut result, true);
+        result
+    }
+
+    /// Increase the regulator counts
+    fn count_regulators(&self, regulators: &mut VariableCounter, value: bool);
 
     /// Construct the set of regulators
     fn get_regulators(&self) -> VarSet {
