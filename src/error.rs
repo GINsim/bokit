@@ -63,3 +63,9 @@ impl From<ParseIntError> for BokitError {
         Self::InvalidExpression
     }
 }
+
+impl<T> From<pest::error::Error<T>> for BokitError {
+    fn from(_: pest::error::Error<T>) -> Self {
+        Self::InvalidExpression
+    }
+}

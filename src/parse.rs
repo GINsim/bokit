@@ -5,6 +5,7 @@ use regex::Regex;
 
 #[derive(Parser)]
 #[grammar_inline = r####"
+sexpr = _{ SOI ~ expr ~ EOI }
 expr  = _{ disj }
 disj  =  { conj ~ ( "|"  ~ conj )* }
 conj  =  { term ~ ( "&" ~ term )* }
@@ -60,11 +61,8 @@ pub trait VariableParser {
     }
 
     fn parse_expression(&mut self, s: &str) -> Result<Expr, BokitError> {
-        let parsed = ExpressionParser::parse(Rule::expr, s);
-        if parsed.is_err() {
-            return Err(BokitError::InvalidExpression);
-        }
-        self._load_expr(parsed.unwrap().next().unwrap())
+        let mut parsed = ExpressionParser::parse(Rule::sexpr, s)?;
+        self._load_expr(parsed.next().unwrap())
     }
 
     fn _load_expr(&mut self, expr: iterators::Pair<Rule>) -> Result<Expr, BokitError> {
@@ -115,5 +113,23 @@ impl VariableParser for BaseVariableParser {
             s.to_string(),
             "Variable",
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::parse::{ExpressionParser, Rule};
+    use pest::Parser;
+
+    #[test]
+    fn parse_expression() {
+        let valid = "_1 & _2";
+        let invalid = "_1 & _2 |";
+
+        let parsed = ExpressionParser::parse(Rule::sexpr, valid);
+        assert!(parsed.is_ok());
+
+        let parsed = ExpressionParser::parse(Rule::sexpr, invalid);
+        assert!(parsed.is_err());
     }
 }
