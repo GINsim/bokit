@@ -102,7 +102,7 @@ impl DecomposedExpr {
 impl DecomposedExpr {
     pub(crate) fn new(e: &Expr, penalty: usize) -> (Self, DecomposeReport) {
         let cplx = e.estimate_complexity().score().unwrap_or(usize::MAX);
-        if cplx > 500 {
+        if cplx < 50 {
             return (
                 DecomposedExpr {
                     root: e.clone(),
