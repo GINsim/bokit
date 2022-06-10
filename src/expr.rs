@@ -282,6 +282,37 @@ impl Expr {
         DecomposedExpr::new(self, penalty.unwrap_or(100))
     }
 
+    /// Compute the dual of this expression.
+    ///
+    /// The dual expression swaps:
+    /// *  true and false
+    /// * AND and OR
+    ///
+    /// It is equivalent to the negation of the expression where all literals change sign.
+    ///
+    /// The implicants of the dual correspond to the implicates of the original expression.
+    pub fn dual(&self) -> Expr {
+        match &self.node {
+            ExprNode::True => self.not(),
+            ExprNode::Variable(_) => self.clone(),
+            ExprNode::Pattern(p) => {
+                let mut dual_pattern = p.clone();
+                dual_pattern.negate_all_variables();
+                Expr {
+                    value: !self.value,
+                    node: ExprNode::Pattern(dual_pattern),
+                }
+            }
+            ExprNode::Operation(op, children) => Expr {
+                value: self.value,
+                node: ExprNode::Operation(
+                    op.dual(),
+                    Arc::new((children.0.dual(), children.1.dual())),
+                ),
+            },
+        }
+    }
+
     /// Estimated computational complexity of the expression.
     /// This computes the maximal number of implicants needed
     /// to cover this expression.
@@ -431,6 +462,13 @@ impl Operator {
         match self {
             Operator::And => 2,
             Operator::Or => 1,
+        }
+    }
+
+    fn dual(&self) -> Self {
+        match self {
+            Operator::And => Operator::Or,
+            Operator::Or => Operator::And,
         }
     }
 
