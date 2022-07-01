@@ -322,6 +322,14 @@ impl Expr {
         ExprComplexity::from(self)
     }
 
+    /// Get the fixed value associated to this expression, or none if it is not fixed
+    pub fn get_fixed(&self) -> Option<bool> {
+        match &self.node {
+            ExprNode::True => Some(self.value),
+            _ => None,
+        }
+    }
+
     #[cfg(feature = "pyo3")]
     pub fn __str__(&self) -> String {
         format!("{}", self)
