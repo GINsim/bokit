@@ -88,7 +88,7 @@ pub struct ExtendVarSpace<'a> {
     varspace: &'a mut VarSpace,
 }
 pub struct FrozenVarSpace<'a> {
-    varspace: &'a mut VarSpace,
+    varspace: &'a VarSpace,
 }
 
 /// A named rule associates a rule to a variable collection to provide prettier display output
@@ -358,6 +358,10 @@ impl VarSpace {
     /// Get the number of assigned Variables
     pub fn len(&self) -> usize {
         self.blocks.len()
+    }
+
+    pub fn as_frozen_parser(&self) -> Box<dyn VariableParser + '_> {
+        Box::new(FrozenVarSpace { varspace: self })
     }
 
     fn _provide_name(&mut self, name: &str) -> Variable {
