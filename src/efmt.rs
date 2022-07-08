@@ -5,6 +5,30 @@ use delegate::delegate;
 
 use std::fmt;
 
+pub struct FormatterConfig<'a> {
+    s_and: &'a str,
+    s_or: &'a str,
+    s_not: &'a str,
+}
+
+pub static DEFAULT_FMT_CFG: FormatterConfig = FormatterConfig {
+    s_and: "&",
+    s_or: "|",
+    s_not: "!",
+};
+
+pub static LOWERCASE_FMT_CFG: FormatterConfig = FormatterConfig {
+    s_and: " and ",
+    s_or: " or ",
+    s_not: "not ",
+};
+
+pub struct InfixFormatted<'a, T: Rule> {
+    rule: &'a T,
+    cfg: &'a FormatterConfig<'a>,
+    ovs: Option<&'a VarSpace>,
+}
+
 /// Define hooks to display separate parts of expressions.
 ///
 /// This trait provide entry points used by [crate::Expr::fmt_with] to control the presentation of the expression.
@@ -71,15 +95,47 @@ pub trait ExprFormatter {
     }
 }
 
-pub struct InfixFormatter<'a, 'b>(&'a mut fmt::Formatter<'b>, Option<&'a VarSpace>);
+impl FormatterConfig<'_> {
+    pub fn operator(&self, op: Operator) -> &str {
+        match op {
+            Operator::And => self.s_and,
+            Operator::Or => self.s_or,
+        }
+    }
+
+    pub fn infix<'a, T: Rule>(
+        &'a self,
+        rule: &'a T,
+        vs: Option<&'a VarSpace>,
+    ) -> InfixFormatted<'a, T> {
+        InfixFormatted {
+            rule,
+            ovs: vs,
+            cfg: self,
+        }
+    }
+}
+
+pub struct InfixFormatter<'a, 'b>(
+    &'a mut fmt::Formatter<'b>,
+    Option<&'a VarSpace>,
+    &'a FormatterConfig<'a>,
+);
 pub struct PrefixFormatter<'a, 'b>(InfixFormatter<'a, 'b>);
 
 impl<'a, 'b> InfixFormatter<'a, 'b> {
     pub fn new(f: &'a mut fmt::Formatter<'b>) -> Self {
-        Self(f, None)
+        Self(f, None, &DEFAULT_FMT_CFG)
     }
     pub fn named(f: &'a mut fmt::Formatter<'b>, vs: &'a VarSpace) -> Self {
-        Self(f, Some(vs))
+        Self(f, Some(vs), &DEFAULT_FMT_CFG)
+    }
+    pub fn with(
+        f: &'a mut fmt::Formatter<'b>,
+        ovs: Option<&'a VarSpace>,
+        cfg: &'a FormatterConfig,
+    ) -> Self {
+        Self(f, ovs, cfg)
     }
 }
 
@@ -106,7 +162,7 @@ impl ExprFormatter for InfixFormatter<'_, '_> {
 
     fn write_variable(&mut self, var: Variable, value: bool) -> fmt::Result {
         if !value {
-            write!(self, "!")?;
+            write!(self, "{}", self.2.s_not)?;
         }
         match self.1 {
             None => write!(self, "_{}_", var),
@@ -121,7 +177,7 @@ impl ExprFormatter for InfixFormatter<'_, '_> {
         parent: Option<Operator>,
     ) -> fmt::Result {
         match value {
-            false => write!(self, "!("),
+            false => write!(self, "{}(", self.2.s_not),
             true => match op.priority() < parent.map(|o| o.priority()).unwrap_or(0) {
                 true => write!(self, "("),
                 false => Ok(()),
@@ -145,10 +201,7 @@ impl ExprFormatter for InfixFormatter<'_, '_> {
     }
 
     fn sep_operation(&mut self, op: Operator) -> fmt::Result {
-        match op {
-            Operator::And => write!(self, " & "),
-            Operator::Or => write!(self, " | "),
-        }
+        write!(self, "{}", self.2.operator(op))
     }
 }
 
@@ -158,6 +211,13 @@ impl<'a, R: Rule> fmt::Display for PrefixFormatted<'a, R> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         let mut ef = PrefixFormatter::new(f);
         self.0.fmt_with(&mut ef)
+    }
+}
+
+impl<T: Rule> fmt::Display for InfixFormatted<'_, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut ef = InfixFormatter::with(f, self.ovs, self.cfg);
+        self.rule.fmt_with(&mut ef)
     }
 }
 

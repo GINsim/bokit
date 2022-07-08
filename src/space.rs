@@ -1,5 +1,7 @@
 use crate::{parse::VariableParser, *};
 
+#[cfg(feature = "pyo3")]
+use itertools::Itertools;
 use once_cell::sync::Lazy;
 use regex::Regex;
 use slab::Slab;
@@ -144,7 +146,7 @@ impl VarSpace {
 
     #[cfg(feature = "pyo3")]
     /// Display a variable or an expression using the associated names in this group
-    fn display(&self, obj: &PyAny) -> PyResult<String> {
+    pub fn display(&self, obj: &PyAny) -> PyResult<String> {
         if let Ok(v) = obj.extract::<Variable>() {
             return Ok(format!("{}", self.named(&v)));
         }
@@ -159,6 +161,10 @@ impl VarSpace {
 
         if let Ok(s) = obj.extract::<Pattern>() {
             return Ok(format!("{}", self.named(&s)));
+        }
+
+        if let Ok(v) = obj.extract::<VarSet>() {
+            return Ok(v.iter().map(|v| format!("{}", self.named(&v))).join(","));
         }
 
         Err(PyValueError::new_err(format!(
