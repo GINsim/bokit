@@ -177,6 +177,22 @@ impl Pattern {
         }
     }
 
+    /// Get the pair of fixed status for a given variable.
+    ///
+    /// The result is the same as (fixed_at(var, true), fixed_at(var, false)).
+    ///
+    /// Free variables yield (false, false), variables fixed at false yield (true, false)
+    /// variables fixed at true yield (false, true) and inconsistent variables yield (true, true).
+    pub fn fixed_pair(&self, var: Variable) -> (bool, bool) {
+        (self.is_fixed_at(var, false), self.is_fixed_at(var, true))
+    }
+
+    /// Free all variables in this pattern
+    pub fn free_all(&mut self) {
+        self.positive.clear();
+        self.negative.clear();
+    }
+
     /// Fix a variable to a specific value.
     ///
     /// If this variable was free, this leads to a restriction of the pattern.

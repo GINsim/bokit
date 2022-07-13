@@ -318,6 +318,11 @@ impl VarSet {
         self.0.difference_with(&vars.0);
     }
 
+    /// Remove all variables from this set
+    pub fn clear(&mut self) {
+        self.0.clear()
+    }
+
     /// Retain only the variables included in the other set
     pub fn retain_set(&mut self, vars: &Self) {
         self.0.intersect_with(&vars.0);
