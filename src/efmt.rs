@@ -201,7 +201,7 @@ impl ExprFormatter for InfixFormatter<'_, '_> {
     }
 
     fn sep_operation(&mut self, op: Operator) -> fmt::Result {
-        write!(self, "{}", self.2.operator(op))
+        write!(self, " {} ", self.2.operator(op))
     }
 }
 

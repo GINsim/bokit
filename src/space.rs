@@ -6,7 +6,10 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use slab::Slab;
 use std::fmt;
+use std::ops::Not;
+use std::str::FromStr;
 
+use crate::error::ParseError;
 #[cfg(feature = "pyo3")]
 use pyo3::{
     exceptions::PyValueError,
@@ -29,6 +32,17 @@ pub enum Component<'a> {
     Single(&'a str, Variable),
     /// A group of related variables
     Group(&'a str, &'a [Variable]),
+}
+
+/// Multi-valued comparisons that can be mapped to Boolean constraints on related variables
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Comparator {
+    EQ,
+    NEQ,
+    GT,
+    GEQ,
+    LT,
+    LEQ,
 }
 
 /// A collection of named variables defining the state space.
@@ -328,6 +342,15 @@ impl VarSpace {
     }
 
     #[cfg(feature = "pyo3")]
+    fn restrict_range(&self, var: &str, cmp: &str, val: usize) -> Result<Expr, BokitError> {
+        let var = self
+            .get(var)
+            .ok_or(BokitError::NoSuchVariableName(var.to_string()))?;
+        let cmp = cmp.parse::<Comparator>()?;
+        Ok(self.compare_to_value(var, cmp, val))
+    }
+
+    #[cfg(feature = "pyo3")]
     fn __len__(&self) -> usize {
         self.len()
     }
@@ -546,6 +569,28 @@ impl VarSpace {
         }
     }
 
+    pub fn compare_to_value(&self, var: Variable, cmp: Comparator, val: usize) -> Expr {
+        match cmp {
+            Comparator::NEQ => self.compare_to_value(var, Comparator::EQ, val).not(),
+            Comparator::GT => self.compare_to_value(var, Comparator::GEQ, val + 1),
+            Comparator::LEQ => self.compare_to_value(var, Comparator::LT, val + 1),
+            Comparator::LT => self.compare_to_value(var, Comparator::GEQ, val).not(),
+            Comparator::EQ => {
+                self.compare_to_value(var, Comparator::GEQ, val)
+                    & self.compare_to_value(var, Comparator::LT, val + 1)
+            }
+            Comparator::GEQ => {
+                if val == 0 {
+                    return Expr::from(true);
+                }
+                match self.get_associated(var, val) {
+                    None => Expr::from(false),
+                    Some(v) => Expr::from(v),
+                }
+            }
+        }
+    }
+
     #[cfg(feature = "pyo3")]
     /// Build a state based on a list of active components
     fn _varset_from_args(&self, result: Option<VarSet>, py_args: &PyTuple) -> PyResult<VarSet> {
@@ -662,6 +707,22 @@ impl VariableParser for FrozenVarSpace<'_> {
 impl VariableParser for ExtendVarSpace<'_> {
     fn parse_variable(&mut self, s: &str) -> Result<Variable, BokitError> {
         self.varspace.provide(s)
+    }
+}
+
+impl FromStr for Comparator {
+    type Err = ParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "gt" | ">" => Ok(Comparator::GT),
+            "lt" | "<" => Ok(Comparator::LT),
+            "geq" | ">=" => Ok(Comparator::GEQ),
+            "leq" | "<=" => Ok(Comparator::LEQ),
+            "eq" | "=" | "==" => Ok(Comparator::EQ),
+            "neq" | "!=" | "<>" => Ok(Comparator::NEQ),
+            _ => Err(ParseError::SimpleParseError(s.to_string(), "Comparator")),
+        }
     }
 }
 

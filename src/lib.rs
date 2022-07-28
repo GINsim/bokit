@@ -182,13 +182,13 @@ extern crate pest_derive;
 
 // Export public structures and API
 pub use error::BokitError;
-pub use expr::{Expr, ExprComplexity, Operator};
+pub use expr::{Expr, ExprComplexity, ExprNode, Operator};
 pub use implicants::Implicants;
 pub use parse::VariableParser;
 pub use pattern::Pattern;
 pub use primes::Primes;
 pub use rules::Rule;
-pub use space::{Component, VarSpace};
+pub use space::{Comparator, Component, VarSpace};
 pub use states::State;
 pub use variable::{VarList, VarSet, Variable};
 

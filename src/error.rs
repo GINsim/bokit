@@ -3,7 +3,7 @@ use thiserror::Error;
 
 #[cfg(feature = "pyo3")]
 use pyo3::{exceptions::PyValueError, PyErr};
-use std::num::ParseIntError;
+use std::num::{ParseFloatError, ParseIntError};
 
 /// Error in the name of a variable.
 #[derive(Error, Debug)]
@@ -60,6 +60,12 @@ impl From<ParseError> for BokitError {
 
 impl From<ParseIntError> for BokitError {
     fn from(_: ParseIntError) -> Self {
+        Self::InvalidExpression
+    }
+}
+
+impl From<ParseFloatError> for BokitError {
+    fn from(_: ParseFloatError) -> Self {
         Self::InvalidExpression
     }
 }

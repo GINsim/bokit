@@ -81,7 +81,7 @@ pub struct ExprComplexity {
 
 /// A node in an expression tree
 #[derive(Clone, PartialEq, Debug)]
-pub(crate) enum ExprNode {
+pub enum ExprNode {
     /// A fixed Boolean value
     True,
 
@@ -210,6 +210,11 @@ impl Expr {
                 }
             }
         }
+    }
+
+    /// Get access to the inner content: a boolean value and an expression node
+    pub fn get_inner(&self) -> (bool, &ExprNode) {
+        (self.value, &self.node)
     }
 
     pub(crate) fn forward_expr<'a>(
