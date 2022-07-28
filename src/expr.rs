@@ -497,7 +497,11 @@ impl Operator {
         }
     }
 
-    fn join(self, e1: impl Borrow<Expr> + Into<Expr>, e2: impl Borrow<Expr> + Into<Expr>) -> Expr {
+    pub fn join(
+        self,
+        e1: impl Borrow<Expr> + Into<Expr>,
+        e2: impl Borrow<Expr> + Into<Expr>,
+    ) -> Expr {
         let (b1, b2) = (e1.borrow(), e2.borrow());
         match (&b1.node, &b2.node) {
             (ExprNode::True, _) => self.fixed_or(b1.value, e2),
