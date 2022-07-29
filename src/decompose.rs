@@ -54,7 +54,7 @@ struct DecompositionTracker {
     score: usize,
 }
 
-/// Overview of the estimated implicant complexity of a [DecomposedExpr]
+/// Overview of the estimated implicant complexity of a [`DecomposedExpr`]
 #[derive(Clone, Debug)]
 #[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]
 pub struct DecomposeReport {

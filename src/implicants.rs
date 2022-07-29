@@ -63,7 +63,7 @@ impl Implicants {
     ///
     /// The subsumed flag is used to avoid searching for subsumed implicants to remove
     /// when we already know that the list does not contain any of them.
-    /// The flag is enabled for lists containing at least two implicants (see [Self::reset_subsumed_flag]).
+    /// The flag is enabled for lists containing at least two implicants (see [`Self::reset_subsumed_flag`]).
     /// If the subsumed flag is cleared in a list containing subsumed patterns, a call
     /// to remove subsumed pattern will return early and leave the subsumed patterns in place.
     ///
@@ -71,7 +71,7 @@ impl Implicants {
     ///
     /// This function is memory safe, but can compromise the consistency of the list.
     /// In most cases, the subsumed flag is enabled when new patterns are added and cleared when subsumed
-    /// patterns are removed (see [Self::clear_subsumed_patterns] and [Self::push_clear_subsumed]).
+    /// patterns are removed (see [`Self::clear_subsumed_patterns`] and [`Self::push_clear_subsumed`]).
     ///
     /// In some cases (for example in a [list of primes implicants](Primes)), the subsumed flag is
     /// set to ensure consistency, but additional context continues to ensure their absence.
@@ -88,7 +88,7 @@ impl Implicants {
     /// Keep only implicants matching the provided condition.
     ///
     /// It does not affect the subsumed flag but may affect the order of the remaining implicants.
-    /// It uses [Self::quick_partition] to group all removed items then truncates the list.
+    /// It uses [`Self::quick_partition`] to group all removed items then truncates the list.
     ///
     /// The subsumed flag can be cleared if the list if reduced to less than 2 implicants.
     pub fn quick_retain<F: Fn(&Pattern) -> bool>(&mut self, f: F) {
@@ -304,7 +304,7 @@ impl Implicants {
     ///
     /// The pattern is added without any consistency check: it could already be in the list,
     /// or contained in an existing pattern, or contain some existing patterns.
-    /// See [Self::push_clear_subsumed] for a more restrictive addition
+    /// See [`Self::push_clear_subsumed`] for a more restrictive addition
     pub fn push(&mut self, p: Pattern) {
         self.subsumed_flag |= !self.is_empty();
         self.patterns.push(p)

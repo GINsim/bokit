@@ -22,7 +22,10 @@ WHITESPACE = _{ " " | "\t" }
 "####]
 struct ExpressionParser;
 
-static RE_GENERIC_NAME: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\s*_?([01-9]+)_?\s*$").unwrap());
+static RE_GENERIC_NAME: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^\s*_?([01-9]+)_?\s*$")
+        .expect("Failed to compile the regex for valid variable names")
+});
 
 static _NAME_SEPARATORS: [char; 3] = [' ', ',', ';'];
 
@@ -53,7 +56,7 @@ pub trait VariableParser {
     /// Parse a list of implicants with a header line defining a custom variable order
     ///
     /// This method uses a closure to map variable names to actual variables, then
-    /// delegates the actual parsing to [Implicants::parse_with_variables].
+    /// delegates the actual parsing to [`Implicants::parse_with_variables`].
     fn parse_implicants(&mut self, s: &str) -> Result<Implicants, BokitError> {
         let sep = s.find('\n').ok_or(BokitError::InvalidExpression)?;
         let variables = self.parse_variable_list(&s[..sep])?;
@@ -62,7 +65,7 @@ pub trait VariableParser {
 
     fn parse_expression(&mut self, s: &str) -> Result<Expr, BokitError> {
         let mut parsed = ExpressionParser::parse(Rule::sexpr, s)?;
-        self._load_expr(parsed.next().unwrap())
+        self._load_expr(parsed.next().ok_or(ParseError::Unconsistent)?)
     }
 
     fn _load_expr(&mut self, expr: iterators::Pair<Rule>) -> Result<Expr, BokitError> {
@@ -73,7 +76,7 @@ pub trait VariableParser {
             Rule::lit => self.parse_variable(expr.as_str()).map(Expr::from),
             _ => {
                 let mut inner = expr.into_inner();
-                let mut expr = self._load_expr(inner.next().unwrap())?;
+                let mut expr = self._load_expr(inner.next().ok_or(ParseError::Unconsistent)?)?;
                 match rule {
                     Rule::expr => Ok(expr),
                     Rule::neg => Ok(!expr),
@@ -106,10 +109,14 @@ pub fn parser() -> BaseVariableParser {
 impl VariableParser for BaseVariableParser {
     fn parse_variable(&mut self, s: &str) -> Result<Variable, BokitError> {
         if let Some(cap) = RE_GENERIC_NAME.captures(s) {
-            let uid: usize = cap.get(1).unwrap().as_str().parse().unwrap();
+            let uid: usize = cap
+                .get(1)
+                .ok_or(ParseError::Unconsistent)?
+                .as_str()
+                .parse()?;
             return Ok(Variable::from(uid));
         }
-        Err(BokitError::from(ParseError::SimpleParseError(
+        Err(BokitError::from(ParseError::ParsingFailed(
             s.to_string(),
             "Variable",
         )))

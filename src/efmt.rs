@@ -31,13 +31,13 @@ pub struct InfixFormatted<'a, T: Rule> {
 
 /// Define hooks to display separate parts of expressions.
 ///
-/// This trait provide entry points used by [crate::Expr::fmt_with] to control the presentation of the expression.
+/// This trait provide entry points used by [`crate::Expr::fmt_with`] to control the presentation of the expression.
 /// The expression visits the inner tree and calls the hooks defined in this trait for each node and leaf.
 ///
-/// A default formatter is implemented on top of [fmt::Formatter], additional formatters are used through
+/// A default formatter is implemented on top of [`fmt::Formatter`], additional formatters are used through
 /// Rule wrappers overriding the Display trait.
 pub trait ExprFormatter {
-    /// Pass-through function calling an internal [fmt::Formatter].
+    /// Pass-through function calling an internal [`fmt::Formatter`].
     ///
     /// This function enables the use of the ```write!``` macro in other functions.
     fn write_fmt(&mut self, args: fmt::Arguments) -> fmt::Result;

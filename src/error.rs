@@ -24,6 +24,10 @@ pub enum BokitError {
     #[error("There is no variable '{0}' in this group")]
     NoSuchVariable(Variable),
 
+    /// The group does not exist
+    #[error("There is no group '{0}'")]
+    NoSuchGroup(usize),
+
     /// The expression is invalid
     #[error("Not a valid expression")]
     InvalidExpression,
@@ -37,11 +41,15 @@ pub enum BokitError {
 pub enum ParseError {
     /// Simple mismatch
     #[error("The string '{0}' could not be parsed as '{1}'")]
-    SimpleParseError(String, &'static str),
+    ParsingFailed(String, &'static str),
 
     /// Parse error without a description
     #[error("Undefined parse error")]
     JustError,
+
+    /// Parse error without a description
+    #[error("Parsing state unconsistent with the regex or grammar")]
+    Unconsistent,
 }
 
 #[cfg(feature = "pyo3")]

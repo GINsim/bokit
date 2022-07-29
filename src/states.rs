@@ -14,7 +14,7 @@ use pyo3::prelude::*;
 ///
 /// Here states are defined as [sets of active variables](VarSet) and all other variables
 /// are implicitly considered as inactive.
-/// Just like the underlying [VarSet], a state can be constructed explicitly by activating or disabling
+/// Just like the underlying [`VarSet`], a state can be constructed explicitly by activating or disabling
 /// individual variables, or by importing an existing collection of variables, or parsed from a string.
 ///
 /// ```

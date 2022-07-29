@@ -636,18 +636,17 @@ impl From<&Variable> for Expr {
 
 impl From<Pattern> for Expr {
     fn from(p: Pattern) -> Self {
-        if p.is_free_pattern() {
-            return true.into();
-        }
-        if p.has_conflict() {
-            return false.into();
-        }
         match (p.positive.len(), p.negative.len()) {
-            (0, 0) => true.into(),
-            (1, 0) => p.positive.iter().next().unwrap().into(),
-            (0, 1) => p.negative.iter().next().unwrap().into(),
-            _ => Self::from(ExprNode::Pattern(p)),
+            (0, 0) => return Self::from(true),
+            (1, 0) => return Self::from(p.positive.iter().next().unwrap()),
+            (0, 1) => return Self::from(p.negative.iter().next().unwrap()).not(),
+            _ => (),
+        };
+        if p.has_conflict() {
+            return Self::from(false);
         }
+
+        Self::from(ExprNode::Pattern(p))
     }
 }
 

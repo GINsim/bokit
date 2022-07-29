@@ -16,7 +16,7 @@ use pyo3::{exceptions::PyValueError, prelude::*};
 
 /// Boolean function represented as a set of prime implicants.
 ///
-/// This is a special case of ImplicantSet.
+/// This is a special case of [`Implicants`].
 /// An implicant is "prime" if it is not contained in any other implicant.
 /// A set of prime implicants is a set of implicant containg all prime implicants.
 #[cfg_attr(feature = "pyo3", pyclass(module = "bokit"))]

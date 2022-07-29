@@ -163,11 +163,11 @@ impl Not for Variable {
 
 /// A set of selected variables with efficient bitwise operations.
 ///
-/// A VarSet is an abstraction over [BitSet], providing a similar API.
+/// A `VarSet` is an abstraction over [`BitSet`], providing a similar API.
 /// It can be constructed explicitly by inserting or removing individual variables, or by importing
 /// an existing collection of variables. Union, intersection and differences are bitwise operations.
 ///
-/// A VarSet can also be parsed from strings where the position in the string defines the
+/// A `VarSet` can also be parsed from strings where the position in the string defines the
 /// variable UID and the character defines the activation state: 0 for inactive, 1 for active.
 /// To make the strings easier to read, spaces and ' are ignored around and inside the string.
 /// For example "001001100", "  001001100", and "00100 1100" are equivalent.
@@ -431,14 +431,14 @@ impl FromStr for VarSet {
                     s.insert(Variable(idx));
                     idx += 1;
                 }
-                _ => return Err(ParseError::SimpleParseError(descr.to_string(), "VarSet")),
+                _ => return Err(ParseError::ParsingFailed(descr.to_string(), "VarSet")),
             };
         }
         Ok(s)
     }
 }
 
-/// Iterate over variables in a [VarSet]
+/// Iterate over variables in a [`VarSet`]
 pub struct Iter<'a>(bit_set::Iter<'a, u32>);
 
 impl Iterator for Iter<'_> {

@@ -12,7 +12,7 @@ use std::ops::Not;
 
 /// A subspace defined by sets of active and inactive variables, the others are implicitly free.
 ///
-/// They are represented as a pair of [VarSet] to store positive and negative variables.
+/// They are represented as a pair of [`VarSet`] to store positive and negative variables.
 /// In a well-formed pattern, a variable should not be constrained to both values,
 /// i.e. the intersection of both bitsets should be empty. However, some operations
 /// on patterns do not prevent the creation of conflicts, either for performance reasons
@@ -179,10 +179,10 @@ impl Pattern {
 
     /// Get the pair of fixed status for a given variable.
     ///
-    /// The result is the same as (fixed_at(var, true), fixed_at(var, false)).
+    /// The result is the same as ```(fixed_at(var, true), fixed_at(var, false))```.
     ///
-    /// Free variables yield (false, false), variables fixed at false yield (true, false)
-    /// variables fixed at true yield (false, true) and inconsistent variables yield (true, true).
+    /// Free variables yield ```(false, false)```, variables fixed at false yield ```(true, false)```
+    /// variables fixed at true yield ```(false, true)``` and inconsistent variables yield ```(true, true)```.
     pub fn fixed_pair(&self, var: Variable) -> (bool, bool) {
         (self.is_fixed_at(var, false), self.is_fixed_at(var, true))
     }

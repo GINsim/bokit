@@ -17,10 +17,14 @@ use pyo3::{
     types::{PyDict, PyTuple},
 };
 
-static RE_UID: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^(_[01-9_]*)?[a-zA-Z][a-zA-Z01-9_]*$").unwrap());
-static RE_MV_UID: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^([a-zA-Z_][a-zA-Z01-9_]*)(?::([0-9]))?$").unwrap());
+static RE_UID: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^(_[01-9_]*)?[a-zA-Z][a-zA-Z01-9_]*$")
+        .expect("Failed to compile the regex for valid variable UIDs")
+});
+static RE_MV_UID: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(r"^([a-zA-Z_][a-zA-Z01-9_]*)(?::([0-9]))?$")
+        .expect("Failed to compile the regex for multivalued variable UIDs")
+});
 
 /// Associate (group of) variables with their name in a collection.
 ///
@@ -270,8 +274,8 @@ impl VarSpace {
                     return Some(var);
                 }
                 let gid = *gid;
-                let grp = self.groups.get(gid).unwrap();
-                grp.members.get(idx).copied()
+                let grp = self.groups.get(gid);
+                grp.and_then(|g| g.members.get(idx).copied())
             }
             Some(VariableBlock::Single(_)) => {
                 if idx == 0 {
@@ -425,7 +429,7 @@ impl VarSpace {
                     return Ok(v);
                 }
                 let gid = *gid;
-                Ok(self._associate_to_group(gid, idx))
+                self._associate_to_group(gid, idx)
             }
             Some(VariableBlock::Single(name)) => {
                 if idx == 0 {
@@ -434,7 +438,7 @@ impl VarSpace {
                 let name = name.clone();
                 let gid = self._create_subgroup(name, v);
                 self.blocks[v.uid()] = VariableBlock::Associated(gid, 0);
-                Ok(self._associate_to_group(gid, idx))
+                self._associate_to_group(gid, idx)
             }
         }
     }
@@ -480,7 +484,7 @@ impl VarSpace {
     }
 
     /// Retrieve a variable associated to a group, extending the group if needed
-    fn _associate_to_group(&mut self, gid: usize, idx: usize) -> Variable {
+    fn _associate_to_group(&mut self, gid: usize, idx: usize) -> Result<Variable, BokitError> {
         let grp = self.groups.get_mut(gid).unwrap();
 
         for i in grp.members.len()..(idx + 1) {
@@ -488,13 +492,16 @@ impl VarSpace {
             grp.members.push(var);
         }
 
-        *grp.members.get(idx).unwrap()
+        grp.members
+            .get(idx)
+            .copied()
+            .ok_or(BokitError::NoSuchGroup(idx))
     }
 
     /// Get the component corresponding to a given variable.
     ///
-    /// The component indicates if a variable is a regular Boolean variable ([Component::Single])
-    /// or part of a subgroup ([Component::Group]). In this case, return the same variables
+    /// The component indicates if a variable is a regular Boolean variable ([`Component::Single`])
+    /// or part of a subgroup ([`Component::Group`]). In this case, return the same variables
     ///for all members of the subgroup.
     ///
     /// Returns an error if the variable is not part of the collection.
@@ -721,7 +728,7 @@ impl FromStr for Comparator {
             "leq" | "<=" => Ok(Comparator::LEQ),
             "eq" | "=" | "==" => Ok(Comparator::EQ),
             "neq" | "!=" | "<>" => Ok(Comparator::NEQ),
-            _ => Err(ParseError::SimpleParseError(s.to_string(), "Comparator")),
+            _ => Err(ParseError::ParsingFailed(s.to_string(), "Comparator")),
         }
     }
 }
