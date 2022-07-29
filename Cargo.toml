@@ -8,13 +8,13 @@ license     = "LGPL-3.0-or-later"
 edition     = "2021"
 
 [dependencies]
-bit-set     = "0.5.2"
+bit-set     = "0.5.3"
 delegate    = "0.7.0"
 once_cell   = "1.13.0"
-pest        = "2.1.3"
-pest_derive = "2.1.0"
+pest        = "2.2.0"
+pest_derive = "2.2.0"
 regex       = "1.6.0"
-slab        = "0.4.6"
+slab        = "0.4.7"
 thiserror   = "1.0.31"
 itertools = "0.10.3"
 

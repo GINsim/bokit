@@ -78,7 +78,7 @@ impl From<ParseFloatError> for BokitError {
     }
 }
 
-impl<T> From<pest::error::Error<T>> for BokitError {
+impl<T: pest::RuleType> From<pest::error::Error<T>> for BokitError {
     fn from(_: pest::error::Error<T>) -> Self {
         Self::InvalidExpression
     }
