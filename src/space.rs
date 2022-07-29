@@ -583,7 +583,7 @@ impl VarSpace {
                 if val == 0 {
                     return Expr::from(true);
                 }
-                match self.get_associated(var, val) {
+                match self.get_associated(var, val - 1) {
                     None => Expr::from(false),
                     Some(v) => Expr::from(v),
                 }
